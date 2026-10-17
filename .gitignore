@@ -1,0 +1,8 @@
+# Large third-party archives and generated research artefacts (not source)
+SDK (uClibc).zip
+research/local-sdk/
+research/local-output/
+research/build_arm_compare/
+build-*/
+*.log
+__pycache__/

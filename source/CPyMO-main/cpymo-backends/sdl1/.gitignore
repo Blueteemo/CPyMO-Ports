@@ -1,0 +1,13 @@
+/.vscode
+/build*
+/stdout.txt
+/SDL.dll
+/cpymo.exe
+/cpymo
+/*.dol
+/*.dll
+/ffmpeg.tar.gz
+/EBOOT.PBP
+/*_psp
+/default.ttf
+/last_game.txt
