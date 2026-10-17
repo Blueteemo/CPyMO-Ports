@@ -3,6 +3,9 @@ SDK (uClibc).zip
 research/local-sdk/
 research/local-output/
 research/build_arm_compare/
-build-*/
+research/build_arm_compare_clang/
+research/bench/
+build_*/
+build_arm_*/
 *.log
 __pycache__/
