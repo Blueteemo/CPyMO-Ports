@@ -1,4 +1,5 @@
 #include "../../cpymo/cpymo_prelude.h"
+#include "../../cpymo/cpymo_utils.h"
 #include "../include/cpymo_backend_masktrans.h"
 #include "cpymo_backend_software.h"
 #include <stddef.h>
@@ -59,15 +60,48 @@ void cpymo_backend_masktrans_draw(
     float t_top = t + radius;
 	float t_bottom = t - radius;
 
+    /* The full-screen fade touches every pixel of an 800x600 canvas, and v0.21
+     * recomputed `(float)x / (float)width` (and the sample's own index
+     * mapping) inside the loop: at least two float divisions per pixel. The
+     * mask is a single-channel image, so one table per source column and one
+     * per source row covers every lookup here. */
+    const cpymo_backend_software_image *mask_img =
+        (cpymo_backend_software_image *)m;
+
+    size_t *col = (size_t *)malloc(render_target->w * sizeof(*col));
+    size_t *row = (size_t *)malloc(render_target->h * sizeof(*row));
+    if (!col || !row) {
+        free(col);
+        free(row);
+        return;
+    }
+
+    for (size_t x = 0; x < render_target->w; ++x) {
+        float u = (float)x / (float)render_target->w;
+        u = cpymo_utils_clampf(u, 0.0f, 1.0f);
+        col[x] = (size_t)(u * ((float)mask_img->w - 1.0f));
+    }
     for (size_t y = 0; y < render_target->h; ++y) {
+        float v = (float)y / (float)render_target->h;
+        v = cpymo_utils_clampf(v, 0.0f, 1.0f);
+        row[y] = (size_t)(v * ((float)mask_img->h - 1.0f));
+    }
+
+    const uint8_t *mask_pixels = mask_img->pixels;
+    const size_t mask_stride = mask_img->line_stride;
+    /* CPYMO_BACKEND_SOFTWARE_IMAGE_PIXEL steps x by pixel_stride and then adds
+     * a_offset; for a 1-channel mask both are 1 and 0. */
+    const size_t mask_pitch = mask_img->pixel_stride;
+    const size_t mask_ao = mask_img->a_offset;
+
+    for (size_t y = 0; y < render_target->h; ++y) {
+        const uint8_t *mask_row = mask_pixels + row[y] * mask_stride;
         for (size_t x = 0; x < render_target->w; ++x) {
-            float mask;
-            float dummy;
-            cpymo_backend_software_image_sample_nearest(
-                (cpymo_backend_software_image *)m,
-                (float)x / (float)render_target->w,
-                (float)y / (float)render_target->h,
-                &mask, &dummy, &dummy, &dummy);
+            /* v0.21 read this through cpymo_backend_software_image_sample_nearest
+             * with a 1-channel image, i.e. the same byte divided by 255.0f,
+             * so the table read is identical. */
+            float mask = cpymo_backend_software_u8f[
+                mask_row[col[x] * mask_pitch + mask_ao]];
 
             if (!is_fade_in) mask = 1.0f - mask;
 
@@ -75,8 +109,20 @@ void cpymo_backend_masktrans_draw(
 			else if (mask < t_bottom) mask = 0.0f;
 			else mask = (mask - t_bottom) / (2 * radius);
 
+            /* mask == 1.0f is the most common state of a fade (and mask == 0
+             * leaves the destination alone), so skip the per-channel work. */
+            if (mask == 0.0f) continue;
+            if (mask == 1.0f) {
+                cpymo_backend_software_image_write_rgb_opaque(
+                    render_target, x, y, 0, 0, 0);
+                continue;
+            }
+
             cpymo_backend_software_image_write_blend(
                 render_target, x, y, 0, 0, 0, mask);
         }
     }
+
+    free(col);
+    free(row);
 }
