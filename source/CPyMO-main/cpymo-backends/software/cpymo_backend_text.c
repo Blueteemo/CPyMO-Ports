@@ -135,24 +135,44 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
     y /= cpymo_backend_software_cur_context->logical_screen_h;
     y *= window_size_h;
 
+    /* (float)k/255.0f, read from the shared table instead of divided per
+     * pixel: bit-identical, and the whole text box is redrawn on most frames
+     * of a dialogue. */
+    const float cr = cpymo_backend_software_u8f[col.r];
+    const float cg = cpymo_backend_software_u8f[col.g];
+    const float cb = cpymo_backend_software_u8f[col.b];
+
+    /* The (size_t)x / (size_t)y casts and the `>= window_size` comparisons are
+     * kept EXACTLY as v0.21 wrote them, including for negative coordinates,
+     * where the cast is technically undefined: both versions share this
+     * expression, so they agree whatever the target's conversion does. */
     for (uint16_t draw_rect_y = 0; draw_rect_y < t->h; ++draw_rect_y) {
+        const uint8_t *src_row = t->px + (size_t)draw_rect_y * t->w;
+
         for (uint16_t draw_rect_x = 0; draw_rect_x < t->w * TEXT_CHARACTER_W_SCALE; ++draw_rect_x) {
             size_t draw_x = draw_rect_x + (size_t)x;
             size_t draw_y = draw_rect_y + (size_t)y;
 
             if (draw_x >= window_size_w || draw_y >= window_size_h) continue;
 
-            float pixel_alpha = 
-                ((float)t->px[draw_rect_y * t->w + draw_rect_x / TEXT_CHARACTER_W_SCALE] / 255.0f);
+            float pixel_alpha = cpymo_backend_software_u8f[
+                src_row[draw_rect_x / TEXT_CHARACTER_W_SCALE]];
+
+            /* pixel_alpha == 0 blends the current byte onto itself, so the
+             * write is a no-op; skipping it is equivalent, not a shortcut. */
+            if (pixel_alpha == 0.0f) continue;
+
+            float a = alpha * pixel_alpha;
+            if (a == 0.0f) continue;
 
             cpymo_backend_software_image_write_blend(
                 render_target, 
                 draw_x,
                 draw_y,
-                (float)col.r / 255.0f,
-                (float)col.g / 255.0f,
-                (float)col.b / 255.0f,
-                alpha * pixel_alpha);
+                cr,
+                cg,
+                cb,
+                a);
         }
     }
 }

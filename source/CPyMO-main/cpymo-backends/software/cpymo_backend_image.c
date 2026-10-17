@@ -115,6 +115,108 @@ static inline void cpymo_backend_image_trans_pos(float *x, float *y)
 	*y = *y / game_h * scr_h;
 }
 
+/* Source column chosen for every destination column of one draw.
+ *
+ * v0.21 recomputed the mapping inside the pixel loop, so a 640x480 repaint ran
+ * the float multiply, the float divide, the clamp and the multiply again
+ * ~307,200 times. The mapping depends only on `dst_x` (and likewise on
+ * `dst_y` alone), so it can be resolved once per column and once per row.
+ *
+ * The arithmetic order below is copied from cpymo_backend_software_image_sample_nearest()
+ * and cpymo_backend_image_draw() so that every mapping still rounds identically;
+ * on a target with FMA the fused forms are avoided by keeping the
+ * multiplication and the addition in separate statements. */
+typedef struct {
+    size_t  *su;          /* source column, one per destination column  */
+    size_t  *sv;          /* source row, one per destination row       */
+    size_t   su_stack[CPYMO_BACKEND_SOFTWARE_X_STACK];
+    size_t   sv_stack[CPYMO_BACKEND_SOFTWARE_X_STACK];
+    bool     su_heap, sv_heap;
+} cpymo_backend_image_lookup;
+
+/* The rows/columns a draw actually touches, after clipping to the render
+ * target, plus the offset of the first kept index in the ORIGINAL (unclipped)
+ * destination rectangle. The UV mapping is a function of that original
+ * index, `draw_x - x1` / `draw_y - y1` in v0.21, and a partially visible
+ * draw starts in the middle of it.  Forgetting this offset shifts the whole
+ * sprite by the clipped amount; it is the one bug this table can introduce
+ * that a same-size full-canvas draw cannot reveal. */
+static void clipped_range(
+    int x1, int x2, int y1, int y2,
+    int rtw, int rth,
+    int *cx1, int *cx2, int *cy1, int *cy2, int *ix0, int *iy0)
+{
+    int a = x1 < 0 ? 0 : x1;
+    int b = x2 > rtw ? rtw : x2;
+    int c = y1 < 0 ? 0 : y1;
+    int d = y2 > rth ? rth : y2;
+    *cx1 = a; *cx2 = b; *cy1 = c; *cy2 = d;
+    *ix0 = a - x1;
+    *iy0 = c - y1;
+}
+
+static bool lookup_init(
+    cpymo_backend_image_lookup *lk,
+    const cpymo_backend_software_image *src,
+    int x1, int x2, int y1, int y2,
+    int ix0, int iy0,
+    float u_offset, float u_scale, float v_offset, float v_scale,
+    float dstw, float dsth)
+{
+    const float tex_w_m1 = (float)src->w - 1.0f;
+    const float tex_h_m1 = (float)src->h - 1.0f;
+
+    const size_t cols = (size_t)(x2 - x1);
+    const size_t rows = (size_t)(y2 - y1);
+
+    lk->su = lk->su_stack;
+    lk->sv = lk->sv_stack;
+    lk->su_heap = lk->sv_heap = false;
+
+    if (cols > CPYMO_BACKEND_SOFTWARE_X_STACK) {
+        lk->su = (size_t *)malloc(cols * sizeof(*lk->su));
+        if (!lk->su) return false;
+        lk->su_heap = true;
+    }
+    if (rows > CPYMO_BACKEND_SOFTWARE_X_STACK) {
+        lk->sv = (size_t *)malloc(rows * sizeof(*lk->sv));
+        if (!lk->sv) {
+            if (lk->su_heap) free(lk->su);
+            return false;
+        }
+        lk->sv_heap = true;
+    }
+
+    /* dstw/dsth are the integer-aligned extents and are > 0 whenever this is
+     * called. Entry i is the mapping of the ORIGINAL destination index
+     * ix0 + i, i.e. the per-pixel `u_offset + u_scale * (draw_x - x1) / dstw`
+     * and the `clampf` and the `(size_t)(u * (w-1))` of
+     * cpymo_backend_software_image_sample_nearest(), computed once.
+     *
+     * The wording says `du` above is a float; the cast is applied at the end
+     * only to keep the float->float subtractions and the cast in exactly the
+     * order of the original, so every index still truncates the same way. */
+    for (size_t i = 0; i < cols; ++i) {
+        float du = (float)(ix0 + (int)i);
+        float u = u_offset + u_scale * du / dstw;
+        u = cpymo_utils_clampf(u, 0.0f, 1.0f);
+        lk->su[i] = (size_t)(u * tex_w_m1);
+    }
+    for (size_t i = 0; i < rows; ++i) {
+        float dv = (float)(iy0 + (int)i);
+        float v = v_offset + v_scale * dv / dsth;
+        v = cpymo_utils_clampf(v, 0.0f, 1.0f);
+        lk->sv[i] = (size_t)(v * tex_h_m1);
+    }
+    return true;
+}
+
+static void lookup_free(cpymo_backend_image_lookup *lk)
+{
+    if (lk->su_heap) free(lk->su);
+    if (lk->sv_heap) free(lk->sv);
+}
+
 void cpymo_backend_image_draw(
 	float dstx, float dsty, float dstw, float dsth,
 	cpymo_backend_image src,
@@ -124,11 +226,11 @@ void cpymo_backend_image_draw(
     cpymo_backend_image_trans_pos(&dstx, &dsty);
     cpymo_backend_image_trans_pos(&dstw, &dsth);
 
-    int render_target_w = 
-        (int)cpymo_backend_software_cur_context->render_target->w;
+    cpymo_backend_software_image *render_target =
+        cpymo_backend_software_cur_context->render_target;
 
-    int render_target_h = 
-        (int)cpymo_backend_software_cur_context->render_target->h;
+    int render_target_w = (int)render_target->w;
+    int render_target_h = (int)render_target->h;
 
     int x1 = (int)dstx;
     int y1 = (int)dsty;
@@ -137,6 +239,8 @@ void cpymo_backend_image_draw(
 
     dstw = (float)(x2 - x1);
     dsth = (float)(y2 - y1);
+
+    if (x2 <= x1 || y2 <= y1) return;
 
     float scalex = 1.0f;
     float scaley = 1.0f;
@@ -160,31 +264,96 @@ void cpymo_backend_image_draw(
     float u_scale = fsrcw / (float)srci->w;
     float v_scale = fsrch / (float)srci->h;
 
-    for (int draw_y = y1; draw_y < y2; ++draw_y) {
-        for (int draw_x = x1; draw_x < x2; ++draw_x) {
-            if (draw_x < 0) continue;
-            if (draw_x >= render_target_w) break;
-            if (draw_y < 0) break;
-            if (draw_y >= render_target_h) return;
+    /* The per-pixel early exits of v0.21 skip out-of-range columns and stop the
+     * row at the first column past the right edge, and stop entirely at the
+     * first row past the bottom edge. Clipping the ranges once is equivalent
+     * because dst_y and dst_x both increase. `ix0`/`iy0` remember where the
+     * clipped window starts inside the original rectangle, so the UV mapping
+     * below is still computed from the original index. */
+    int cx1, cx2, cy1, cy2, ix0, iy0;
+    clipped_range(x1, x2, y1, y2, render_target_w, render_target_h,
+                 &cx1, &cx2, &cy1, &cy2, &ix0, &iy0);
+    if (cx1 >= cx2 || cy1 >= cy2) return;
 
-            float u = u_offset + u_scale * (float)(draw_x - x1) / dstw;
-            float v = v_offset + v_scale * (float)(draw_y - y1) / dsth;
+    cpymo_backend_image_lookup lk;
+    if (!lookup_init(&lk, srci, cx1, cx2, cy1, cy2, ix0, iy0,
+                     u_offset, u_scale, v_offset, v_scale, dstw, dsth))
+        return;
 
-            u = cpymo_utils_clampf(u, 0.0f, 1.0f);
-            v = cpymo_utils_clampf(v, 0.0f, 1.0f);
+    const uint8_t a_byte = (uint8_t)(alpha * 255.0f);
+    const bool opaque = (alpha == 1.0f);
 
-            float r, g, b, a;
-            cpymo_backend_software_image_sample_nearest(
-                srci, u, v, &r, &g, &b, &a);
+    const size_t line_stride = srci->line_stride;
+    const size_t pixel_stride = srci->pixel_stride;
+    const size_t ro = srci->r_offset, go = srci->g_offset, bo = srci->b_offset;
+    const bool src_alpha = srci->has_alpha_channel;
+    const size_t ao = srci->a_offset;
+    const uint8_t *src_pixels = srci->pixels;
+    const size_t dro = render_target->r_offset;
+    const size_t dgo = render_target->g_offset;
+    const size_t dbo = render_target->b_offset;
+    const size_t dstride = render_target->pixel_stride;
 
-            a *= alpha;
-            
+    for (int draw_y = cy1; draw_y < cy2; ++draw_y) {
+        const uint8_t *tex_row =
+            src_pixels + lk.sv[(size_t)(draw_y - cy1)] * line_stride;
+        uint8_t *dst_row =
+            cpymo_backend_software_image_row(render_target, (size_t)draw_y)
+            + (size_t)cx1 * dstride;
+        /* `lk.su` is indexed per pixel, not stepped by one: the v0.21 mapping
+         * trunc(u * (w-1)), so one source column serves a whole span of
+         * adjacent destination columns when the source is wider. Entry 0 already
+         * corresponds to the first CLIPPED column (see lookup_init). */
+        const size_t *su = lk.su;
+
+        for (int draw_x = cx1; draw_x < cx2; ++draw_x, ++su, dst_row += dstride) {
+            const uint8_t *tex = tex_row + *su * pixel_stride;
+
+            if (opaque) {
+                /* a == 1.0f: with no source alpha, v0.21's a = 1.0f * 1.0f;
+                 * with source alpha, exactly the texel's own alpha. Both
+                 * collapse the expression to u8f[c] * 255.0f, which truncates
+                 * back to c for every byte value, so the three stores are the
+                 * result of the original arithmetic, not an approximation. */
+                const float a = src_alpha
+                    ? cpymo_backend_software_u8f[tex[ao]] : 1.0f;
+                if (a == 1.0f) {
+                    dst_row[dro] = tex[ro];
+                    dst_row[dgo] = tex[go];
+                    dst_row[dbo] = tex[bo];
+                    continue;
+                }
+                if (a == 0.0f) continue;
+                cpymo_backend_software_image_write_blend(
+                    render_target, (size_t)draw_x, (size_t)draw_y,
+                    cpymo_backend_software_u8f[tex[ro]],
+                    cpymo_backend_software_u8f[tex[go]],
+                    cpymo_backend_software_u8f[tex[bo]],
+                    a);
+                continue;
+            }
+
+            if (a_byte == 0) continue;
+
+            float a = cpymo_backend_software_image_sample_alpha(
+                srci, tex, alpha);
+            if (a == 0.0f) continue;
+            if (a == 1.0f) {
+                dst_row[dro] = tex[ro];
+                dst_row[dgo] = tex[go];
+                dst_row[dbo] = tex[bo];
+                continue;
+            }
             cpymo_backend_software_image_write_blend(
-                cpymo_backend_software_cur_context->render_target,
-                (size_t)draw_x, (size_t)draw_y,
-                r, g, b, a);
+                render_target, (size_t)draw_x, (size_t)draw_y,
+                cpymo_backend_software_u8f[tex[ro]],
+                cpymo_backend_software_u8f[tex[go]],
+                cpymo_backend_software_u8f[tex[bo]],
+                a);
         }
     }
+
+    lookup_free(&lk);
 }
 
 void cpymo_backend_image_fill_rects(
@@ -197,11 +366,15 @@ void cpymo_backend_image_fill_rects(
     float b = cpymo_utils_clampf((float)color.b / 255.0f, 0.0f, 1.0f);
     alpha = cpymo_utils_clampf(alpha, 0.0f, 1.0f);
 
-    int render_target_w = 
-        (int)cpymo_backend_software_cur_context->render_target->w;
+    cpymo_backend_software_image *render_target =
+        cpymo_backend_software_cur_context->render_target;
 
-    int render_target_h = 
-        (int)cpymo_backend_software_cur_context->render_target->h;
+    int render_target_w = (int)render_target->w;
+    int render_target_h = (int)render_target->h;
+
+    /* alpha == 0 leaves every destination byte untouched: the expression reduces
+     * to (uint8_t)(u8f[d] * 255.0f) == d for all 256 byte values. */
+    if (alpha == 0.0f) return;
 
     for (size_t i = 0; i < count; ++i) {
         const float *rect = xywh + 4 * i;
@@ -217,15 +390,38 @@ void cpymo_backend_image_fill_rects(
         int x2 = (int)(x + w);
         int y2 = (int)(y + h);
 
+        if (x1 < 0) x1 = 0;
+        if (y1 < 0) y1 = 0;
+        if (x2 > render_target_w) x2 = render_target_w;
+        if (y2 > render_target_h) y2 = render_target_h;
+        if (x1 >= x2 || y1 >= y2) continue;
+
+        const int span = x2 - x1;
+
+        /* alpha == 1 writes the clamped colour itself: the general expression
+         * reduces to (uint8_t)(u8f[c] * 255.0f) == c. */
+        if (alpha == 1.0f) {
+            const uint8_t cr = (uint8_t)(r * 255.0f);
+            const uint8_t cg = (uint8_t)(g * 255.0f);
+            const uint8_t cb = (uint8_t)(b * 255.0f);
+            for (int draw_y = y1; draw_y < y2; ++draw_y) {
+                uint8_t *dst = cpymo_backend_software_image_row(
+                    render_target, (size_t)draw_y)
+                    + (size_t)x1 * render_target->pixel_stride;
+                for (int i = 0; i < span; ++i,
+                         dst += render_target->pixel_stride) {
+                    dst[render_target->r_offset] = cr;
+                    dst[render_target->g_offset] = cg;
+                    dst[render_target->b_offset] = cb;
+                }
+            }
+            continue;
+        }
+
         for (int draw_y = y1; draw_y < y2; ++draw_y) {
             for (int draw_x = x1; draw_x < x2; ++draw_x) {
-                if (draw_x < 0) continue;
-                if (draw_y < 0) break;
-                if (draw_x >= render_target_w) break;
-                if (draw_y >= render_target_h) break;
-
                 cpymo_backend_software_image_write_blend(
-                    cpymo_backend_software_cur_context->render_target,
+                    render_target,
                     (size_t)draw_x,
                     (size_t)draw_y,
                     r, g, b, alpha);
