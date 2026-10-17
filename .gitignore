@@ -9,3 +9,8 @@ build_*/
 build_arm_*/
 *.log
 __pycache__/
+
+# Return packages are rebuilt by tools/make_return_package.py; only their
+# checksum file is worth versioning.
+dist/*.zip
+dist/*.bundle
