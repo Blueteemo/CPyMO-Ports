@@ -12,6 +12,10 @@ python3 "$ROOT/tests/test_audio_deps.py"
 bash "$ROOT/tests/run_launcher_test.sh"
 bash "$ROOT/tests/run_game_loader_test.sh"
 bash "$ROOT/tests/run_menu_test.sh"
+# The manifest is an artefact too: a C-quoted or missing path makes
+# `sha256sum -c` agree with an omission, so it is checked, not assumed.
+python3 "$ROOT/tests/test_manifest_coverage.py"
+python3 "$ROOT/tests/test_readme_claims.py"
 BUILD="${BUILD:-$ROOT/build-stage-v21}"
 BUILD="$BUILD" bash "$ROOT/tests/run_stage_v20.sh"
 python3 "$ROOT/tools/verify_uclibc_core.py" "$ROOT/target/cpymo_libretro.so" >/dev/null
