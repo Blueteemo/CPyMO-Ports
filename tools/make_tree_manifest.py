@@ -45,15 +45,33 @@ EXTRA_FILES = tuple(
 
 
 def tracked() -> list[str]:
+    """Every tracked path, in the ON-DISK spelling.
+
+    `git ls-files` C-quotes any path with a non-ASCII byte by default:
+    `00_请先阅读...md` comes back as
+    `"00_\\350\\257\\267..."`. Such a name is not a path that exists, so
+    `excluded()` dropped it, and the manifest silently described 512 files
+    while the tree had 522 -- `sha256sum -c` then agreed with the manifest
+    and reported zero failures, because the 10 missing lines were never
+    written. `core.quotepath=false` is what makes the two agree.
+    """
     git = "git"
     for cand in (r"C:\Program Files\Git\cmd\git.exe",):
         if Path(cand).is_file():
             git = cand
             break
-    r = subprocess.run([git, "ls-files"], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run([git, "-c", "core.quotepath=false", "ls-files"],
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8")
     if r.returncode:
         raise SystemExit("git ls-files failed; run inside the checkout")
-    return [line for line in r.stdout.splitlines() if line]
+    names = [line for line in r.stdout.splitlines() if line]
+    quoted = [n for n in names if n.startswith('"') or "\\3" in n]
+    if quoted:
+        raise SystemExit(
+            "git returned C-quoted paths ({}); the manifest would name "
+            "files that do not exist: {}".format(len(quoted), quoted[:3]))
+    return names
 
 
 def excluded(rel: str) -> bool:
@@ -75,17 +93,38 @@ def main() -> int:
         print(f"preserved handoff manifest as {KEEP_ORIGINAL}")
 
     # The preserved handoff manifest, then the (large) generated packages if
-    # present, then every tracked file of the current tree.
-    lines: list[str] = []
+    # present, then every tracked file of the current tree. Keyed by path, so
+    # a file that is BOTH tracked and in EXTRA_FILES is listed once --
+    # `SHA256SUMS_v021R1_handoff.txt` was, and the duplicate made a 543-line
+    # file with 542 names (harmless to `sha256sum -c`, confusing to a reader).
+    by_path: dict[str, str] = {}
     for extra in EXTRA_FILES:
         p = ROOT / extra
         if p.is_file():
-            lines.append(f"{hashlib.sha256(p.read_bytes()).hexdigest()} *{extra}\n")
+            by_path[extra] = hashlib.sha256(p.read_bytes()).hexdigest()
 
     files = sorted(f for f in tracked() if not excluded(f))
     for rel in files:
         digest = hashlib.sha256((ROOT / rel).read_bytes()).hexdigest()
-        lines.append(f"{digest} *{rel}\n")
+        by_path.setdefault(rel, digest)
+
+    lines = [f"{d} *{rel}\n" for rel, d in by_path.items()]
+
+    # Self-check: every tracked file that was NOT excluded must be in the
+    # manifest. A C-quoted name used to slip out here silently, and because
+    # the manifest is the thing `sha256sum -c` reads, BOTH SIDES agreed on
+    # the omission and reported zero failures (512 listed, 522 in the tree).
+    # The exclusion rule here is `excluded()` itself, so the check cannot
+    # drift from what was written.
+    listed = {f"{e}" for e in EXTRA_FILES}
+    listed |= set(files)
+    must_list = [f for f in tracked() if not excluded(f)]
+    absent = [f for f in must_list if f not in listed]
+    if absent:
+        for f in absent[:10]:
+            print(f"  NOT LISTED: {f}")
+        raise SystemExit(f"{len(absent)} tracked file(s) missing from "
+                        f"{TEXT_NAME}")
 
     # `newline="\n"` is NOT cosmetic. On Windows, Python's text mode turns the
     # "\n" in each line into "\r\n", and a manifest written that way no longer
@@ -94,7 +133,13 @@ def main() -> int:
     # manifest is LF-only, so this also keeps the two diffable line by line.
     with open(original, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("".join(sorted(lines)))
-    print(f"wrote {TEXT_NAME}: {len(lines)} entries "
+    real = sum(1 for line in lines if " *dist/" not in line)
+    # One line per path, always. A duplicate is harmless to sha256sum and
+    # misleading to a reader (two identical lines read as two files).
+    dupes = len(lines) - len({line.split(" *", 1)[1] for line in lines})
+    if dupes:
+        raise SystemExit(f"{dupes} duplicate path(s) in {TEXT_NAME}")
+    print(f"wrote {TEXT_NAME}: {len(lines)} entries ({real} tree files) "
           f"(was {sum(1 for _ in keep.read_text(encoding='utf-8').splitlines())}"
           f" in the handoff, now at {KEEP_ORIGINAL})")
     return 0

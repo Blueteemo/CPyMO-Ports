@@ -94,12 +94,22 @@ def main(argv: list[str]) -> int:
         check("date_time" in packer or "ZipInfo" in packer,
               "the 'fixed timestamp' claim matches the packager's code")
 
+    # The failing-definition trap: `543 行只对应 542 个文件名` and
+    # `542 entries, 0 failures` are about the ROOT manifest, not the zip.
+    root_manifest = (ROOT / "SHA256SUMS")
+    root_lines = (0 if not root_manifest.is_file()
+                  else len(root_manifest.read_text(
+                      encoding="utf-8").splitlines()))
+    known = {entries, files, covered, root_lines}
+
     # It must also not claim counts that the archive does not have: a stale
     # "515 个文件" survived one rebuild and read as truth.
-    for n in set(re.findall(r"(\d{3}) 个(?:条目|文件)", text)):
-        check(int(n) in (entries, files, covered),
-              f"the README's {n} matches the archive "
-              f"(entries={entries}, files={files}, covered={covered})")
+    for n in set(re.findall(r"(\d{3}) 个(?:条目|文件|行)", text)
+                 + re.findall(r"->\s+(\d{3}) entries", text)):
+        check(int(n) in known,
+              f"the README's {n} matches the artefacts "
+              f"(zip entries={entries}, covered={covered}, "
+              f"root manifest={root_lines})")
 
     # The README's ORDER of the README: it claims dist/SHA256SUMS is the
     # authority, which is only true because the HANDOFF script writes the
