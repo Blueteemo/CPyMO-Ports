@@ -16,6 +16,7 @@
 #include "libretro.h"
 
 #include "../../cpymo/cpymo_engine.h"
+#include "../../cpymo/cpymo_game_selector.h"
 #include "../../endianness.h/endianness.h"
 #include "../software/cpymo_backend_software.h"
 #include "../include/cpymo_backend_audio.h"
@@ -52,6 +53,35 @@ static bool                           garlic_first_frame = false;
 static bool                           garlic_pixel_format_supported = false;
 static bool                           garlic_engine_ready = false;
 static bool                           garlic_game_loaded = false;
+/* Which of the two screens the 180-frame counters describe. The menu and a
+ * game are the same "loaded" state to the frontend; this only tells the
+ * report, the footer and the tests which one is on screen. */
+typedef enum {
+    GARLIC_SCREEN_NONE = 0,
+    GARLIC_SCREEN_GAME,
+    GARLIC_SCREEN_MENU
+} garlic_screen_t;
+static garlic_screen_t              garlic_screen = GARLIC_SCREEN_NONE;
+/* The game the selector chose, so a reload (RetroArch replaying the same
+ * content) and the log can name it. */
+static char                        garlic_selected_game[PATH_MAX];
+/* Menu geometry, at the OUTPUT size, from §4 of the v0.23 task. Drawing the
+ * menu at 640x480 makes the RGB565 blit an exact 1:1 copy, so the menu
+ * cannot be blurred by the scaler it is used to choose games for. */
+#define GARLIC_MENU_FONTSIZE 32
+#define GARLIC_MENU_NODES_PER_SCREEN 4
+/* Environment switches, always documented where they are read. */
+#define GARLIC_MENU_ENV "CPYMO_MENU"           /* "0" disables the menu  */
+#define GARLIC_MENU_FONT_ENV "CPYMO_MENU_FONT" /* an explicit font file   */
+#define GARLIC_GAMES_DIR_ENV "CPYMO_GAMES_DIR"  /* where the games are    */
+/* The GarlicOS convention, used only when the environment and the content
+ * path both fail to name a directory of games. */
+#define GARLIC_GAMES_DIR "/mnt/mmc/Roms/APPS"
+/* Up to this many font candidates, tried in order. */
+#define GARLIC_FONT_MAX 8
+/* The directory the menu was built from, kept so a game without a font of
+ * its own can still use the card-wide one. */
+static char                        garlic_menu_root[PATH_MAX];
 /* Low-overhead real-hardware profiling. Log each 180 retro_run calls:
  * actual wall time and separately the engine update, draw and RGB565 copy.
  * This deliberately does not mistake RetroArch monitor Hz for CPyMO FPS.
@@ -88,17 +118,19 @@ static void garlic_prof_reset(void)
 static void garlic_prof_report(void)
 {
     if (garlic_prof_frames == 0) return;
+    static const char *const screen_name[] = { "none", "game", "menu" };
+    const char *on = screen_name[(int)garlic_screen <= 2 ? (int)garlic_screen : 0];
     uint64_t wall = garlic_micros() - garlic_prof_wall_base;
     uint64_t accounted = garlic_prof_update_us + garlic_prof_draw_us
                       + garlic_prof_convert_us + garlic_prof_video_us
                       + garlic_prof_audio_us;
     uint64_t outside = wall > accounted ? wall - accounted : 0;
     log_cb(RETRO_LOG_INFO,
-           "CPYMO_PERF v0.21 frames=%u draws=%u elapsed_ms=%llu "
+           "CPYMO_PERF v0.21 screen=%s frames=%u draws=%u elapsed_ms=%llu "
            "fps_x10=%llu update_us_avg=%llu draw_us_avg=%llu "
            "convert_us_avg=%llu outside_us_avg=%llu video_us_avg=%llu "
            "audio_us_avg=%llu\n",
-           garlic_prof_frames, garlic_prof_draws,
+           on, garlic_prof_frames, garlic_prof_draws,
            (unsigned long long)(wall / 1000),
            (unsigned long long)(wall ? 10000000ULL * garlic_prof_frames / wall : 0),
            (unsigned long long)(garlic_prof_update_us / garlic_prof_frames),
@@ -112,6 +144,7 @@ static void garlic_prof_report(void)
 
 static bool                           garlic_directory_changed = false;
 static char                           garlic_previous_directory[PATH_MAX];
+static char                           garlic_current_directory[PATH_MAX];
 static cpymo_backend_software_context  soft_context;
 static cpymo_input                     input      = { 0 };
 /* Libretro frame-time callback is optional; a missing callback must not
@@ -420,6 +453,13 @@ static error_t cpymo_backend_font_try_load_font(const char *path)
 {
     unsigned char *data = NULL;
     size_t len = 0;
+    /* Replacing a font is normal here: the selector draws its menu with one
+     * font and every chosen game brings its own. Without this the menu font
+     * would leak (~95 kB) on every selection. */
+    if (font.data) {
+        free(font.data);
+        font.data = NULL;
+    }
     error_t err = cpymo_utils_loadfile(path, (char **)&data, &len);
     if (err != CPYMO_ERR_SUCC)
         return err;
@@ -431,39 +471,267 @@ static error_t cpymo_backend_font_try_load_font(const char *path)
     return CPYMO_ERR_SUCC;
 }
 
-static error_t cpymo_backend_font_init(const char *gamedir)
+/* Which font a run is actually using, said ONCE per load, in the same words
+ * for the menu and for a game. `$CPYMO_MENU_FONT` outranks everything, so
+ * naming it in the log is how a user confirms the override took effect. */
+static void garlic_report_font(const char *path, const char *gamedir)
 {
-    error_t err;
-    char *fontpath = (char *)alloca(strlen(gamedir) + 24);
+    const char *menu_font = getenv(GARLIC_MENU_FONT_ENV);
+    const char *where = "the environment's";
+    if (menu_font && menu_font[0] && strcmp(path, menu_font) == 0)
+        where = "the environment's";
+    else if (gamedir && gamedir[0] && strncmp(path, gamedir, strlen(gamedir)) == 0)
+        where = "this game's";
+    else if (garlic_menu_root[0]
+             && strncmp(path, garlic_menu_root, strlen(garlic_menu_root)) == 0)
+        where = "the games root's";
+    else
+        where = "the frontend's";
+    log_cb(RETRO_LOG_INFO, "font: %s (%s)\n", path, where);
+}
 
-    sprintf(fontpath, "%s/system/default.ttf", gamedir);
-    err = cpymo_backend_font_try_load_font(fontpath);
-    if (err == CPYMO_ERR_SUCC)
-        return CPYMO_ERR_SUCC;
-    sprintf(fontpath, "%s/system/default.otf", gamedir);
-    err = cpymo_backend_font_try_load_font(fontpath);
-    if (err == CPYMO_ERR_SUCC)
-        return CPYMO_ERR_SUCC;
+/* One font rule for the whole core -- the game, the selector's menu and the
+ * fallback that used to be hard-coded here all come from
+ * garlic_font_candidates(), so what the log prints and what the code tries
+ * cannot drift apart. The last candidates are the frontend's
+ * <systemdir>/cpymo/default.{ttf,otf}, which is the historical fallback.
+ *
+ * Candidates are ranked, so a card-wide font is tried only after the game's
+ * own: the caller passes the games root as `fallback_dir`. */
+static error_t cpymo_backend_font_init(const char *gamedir,
+                                      const char *fallback_dir)
+{
+    const char *systemdir = NULL;
+    (void)environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &systemdir);
+    const char *menu_font = getenv(GARLIC_MENU_FONT_ENV);
 
-    const char *systemdir;
-    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &systemdir)) {
-        fontpath = (char *)alloca(strlen(systemdir) + 24);
-        sprintf(fontpath, "%s/cpymo/default.ttf", systemdir);
-        err = cpymo_backend_font_try_load_font(fontpath);
-        if (err == CPYMO_ERR_SUCC)
-            return CPYMO_ERR_SUCC;
-        sprintf(fontpath, "%s/cpymo/default.otf", systemdir);
-        err = cpymo_backend_font_try_load_font(fontpath);
-        if (err == CPYMO_ERR_SUCC)
-            return CPYMO_ERR_SUCC;
+    char candidates[8][GARLIC_PATH_MAX];
+    size_t n = 0;
+    /* The explicit font first, then the game's own, then the fallback. */
+    if (gamedir && gamedir[0])
+        n += garlic_font_candidates(gamedir, NULL, menu_font,
+                                   (char *)candidates, GARLIC_PATH_MAX, 8);
+    else if (menu_font && menu_font[0])
+        n += garlic_font_candidates(NULL, NULL, menu_font,
+                                   (char *)candidates, GARLIC_PATH_MAX, 8);
+    if (fallback_dir && fallback_dir[0] && n < 8) {
+        char more[8][GARLIC_PATH_MAX];
+        size_t k = garlic_font_candidates(fallback_dir, NULL, NULL,
+                                         (char *)more, GARLIC_PATH_MAX, 8);
+        for (size_t i = 0; i < k && n < 8; ++i)
+            snprintf(candidates[n++], GARLIC_PATH_MAX, "%s", more[i]);
     }
-    return err;
+    if (systemdir && systemdir[0] && n < 8) {
+        char more[8][GARLIC_PATH_MAX];
+        size_t k = garlic_font_candidates(NULL, systemdir, NULL,
+                                         (char *)more, GARLIC_PATH_MAX, 8);
+        for (size_t i = 0; i < k && n < 8; ++i)
+            snprintf(candidates[n++], GARLIC_PATH_MAX, "%s", more[i]);
+    }
+
+    error_t last = CPYMO_ERR_NOT_FOUND;
+    for (size_t i = 0; i < n; ++i) {
+        error_t err = cpymo_backend_font_try_load_font(candidates[i]);
+        if (err == CPYMO_ERR_SUCC) {
+            garlic_report_font(candidates[i], gamedir);
+            return CPYMO_ERR_SUCC;
+        }
+        last = err;
+    }
+    if (n == 0) {
+        log_cb(RETRO_LOG_ERROR, "no font candidate: no game dir, no system dir\n");
+        return CPYMO_ERR_NOT_FOUND;
+    }
+    /* Name every place that was tried: a missing font is otherwise the
+     * silent-blank-screen failure this project keeps having to diagnose. */
+    for (size_t i = 0; i < n; ++i)
+        log_cb(RETRO_LOG_WARN, "no font at %s\n", candidates[i]);
+    return last;
 }
 
 /* Libretro runs in RetroArch's process. A failed load must leave its current
  * directory, font state and backend context unchanged for subsequent games.
  * Do not depend on GNU's realpath(path, NULL) extension on uClibc. */
 void retro_unload_game(void);
+
+/* ------------------------------------------------------------------ */
+/* the screen: one canvas, re-sized per game, and one loader for both   */
+/* ------------------------------------------------------------------ */
+
+/* Make the render target (and the RGB565 output) exactly w x h. Called for
+ * the menu (the OUTPUT size) and again for every chosen game (its OWN logical
+ * size), so the two screens cannot disagree about what "the canvas" is. */
+static bool garlic_apply_canvas(size_t w, size_t h)
+{
+    if (w == 0 || h == 0 || w > 2048 || h > 2048) return false;
+    if (soft_image.pixels && soft_image.w == w && soft_image.h == h) {
+        soft_context.render_target = &soft_image;
+        soft_context.logical_screen_w = (float)w;
+        soft_context.logical_screen_h = (float)h;
+        soft_context.font = &font;
+        cpymo_backend_software_set_context(&soft_context);
+        return true;
+    }
+
+    uint8_t *pixels = (uint8_t *)calloc(h, w * 4);
+    if (!pixels) return false;
+    if (soft_image.pixels) free(soft_image.pixels);
+    soft_image.pixels = pixels;
+    soft_image.w = w;
+    soft_image.h = h;
+    soft_image.line_stride = w * 4;
+    soft_image.pixel_stride = 4;
+    soft_image.r_offset = 2;
+    soft_image.g_offset = 1;
+    soft_image.b_offset = 0;
+    soft_image.a_offset = 3;
+    soft_image.has_alpha_channel = false;
+
+    if (!garlic_rgb565_frame)
+        garlic_rgb565_frame = (uint16_t *)calloc(
+            GARLIC_OUTPUT_WIDTH * GARLIC_OUTPUT_HEIGHT, sizeof(uint16_t));
+    if (!garlic_rgb565_frame) return false;
+
+    soft_context.font = &font;
+    soft_context.render_target = &soft_image;
+    soft_context.logical_screen_w = (float)w;
+    soft_context.logical_screen_h = (float)h;
+    soft_context.scale_on_load_image = false;
+    cpymo_backend_software_set_context(&soft_context);
+    return true;
+}
+
+/* The per-game half of the platform work: the engine has already been
+ * re-initialised for `gamedir` by the selector / plain loader, so this brings
+ * the CWD, the save directory, the font and the canvas along. */
+static error_t garlic_after_game_selected(const char *gamedir)
+{
+    if (chdir(gamedir) != 0) {
+        log_cb(RETRO_LOG_ERROR, "chdir: %s\n", strerror(errno));
+        return CPYMO_ERR_CAN_NOT_OPEN_FILE;
+    }
+    garlic_directory_changed = true;
+    if (!garlic_make_save_dir(gamedir, garlic_get_save_root())) {
+        log_cb(RETRO_LOG_WARN, "save directory is not writable: %s\n",
+               strerror(errno));
+    }
+    error_t err = cpymo_backend_font_init(gamedir, garlic_menu_root);
+    if (err != CPYMO_ERR_SUCC) {
+        log_cb(RETRO_LOG_ERROR, "no font for %s: %s\n", gamedir,
+               cpymo_error_message(err));
+        return err;
+    }
+    if (!garlic_apply_canvas(engine.gameconfig.imagesize_w,
+                             engine.gameconfig.imagesize_h)) {
+        log_cb(RETRO_LOG_ERROR, "invalid or excessive game canvas size: %ux%u\n",
+               (unsigned)engine.gameconfig.imagesize_w,
+               (unsigned)engine.gameconfig.imagesize_h);
+        return CPYMO_ERR_OUT_OF_MEM;
+    }
+    snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", gamedir);
+    garlic_screen = GARLIC_SCREEN_GAME;
+    garlic_first_frame = true;
+    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u\n", gamedir,
+           (unsigned)engine.gameconfig.imagesize_w,
+           (unsigned)engine.gameconfig.imagesize_h);
+    return CPYMO_ERR_SUCC;
+}
+
+static error_t garlic_selector_before(cpymo_engine *e, const char *gamedir)
+{
+    (void)e;
+    (void)gamedir;
+    return CPYMO_ERR_SUCC;
+}
+
+static error_t garlic_selector_after(cpymo_engine *e, const char *gamedir)
+{
+    (void)e;
+    return garlic_after_game_selected(gamedir);
+}
+
+/* Open the game selector over `games_root`.
+ *
+ * The menu draws at the OUTPUT size on purpose: the RGB565 blit is then an
+ * exact 1:1 copy, so the screen a user picks a game on cannot be blurred by
+ * the scaler it exists to work around. The canvas is re-sized again by
+ * garlic_after_game_selected() once a game is chosen.
+ *
+ * Returns true with garlic_screen == MENU, or false having logged why; a false
+ * here is not fatal for `retro_load_game`, which then falls back to a plain
+ * load. */
+static bool garlic_open_menu(const char *games_root, const char *initial_game)
+{
+    char *dirs[64];
+    size_t count = 0;
+    if (!garlic_scan_game_dirs(games_root, dirs, 64, &count) || count == 0) {
+        for (size_t i = 0; i < count; ++i) free(dirs[i]);
+        log_cb(RETRO_LOG_INFO, "no game found under %s\n", games_root);
+        return false;
+    }
+
+    cpymo_game_selector_item *items = NULL, *tail = NULL;
+    for (size_t i = 0; i < count; ++i) {
+        cpymo_game_selector_item *item = NULL;
+        char *path = dirs[i];       /* ownership moves into the item */
+        if (cpymo_game_selector_item_create(&item, &path) != CPYMO_ERR_SUCC) {
+            free(path);
+            cpymo_game_selector_item_free_all(items);
+            return false;
+        }
+        item->prev = tail;
+        if (tail) tail->next = item; else items = item;
+        tail = item;
+    }
+
+    if (!garlic_apply_canvas(GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT)) {
+        cpymo_game_selector_item_free_all(items);
+        return false;
+    }
+    /* The menu needs a font OF ITS OWN, before any game has been chosen:
+     * <games_root>/system/default.ttf is a candidate, and an explicit
+     * CPYMO_MENU_FONT outranks it. */
+    if (cpymo_backend_font_init(games_root, NULL) != CPYMO_ERR_SUCC) {
+        log_cb(RETRO_LOG_ERROR,
+               "no usable font for the menu (%s/system/default.ttf, "
+               "$" GARLIC_MENU_FONT_ENV ")\n", games_root);
+        cpymo_game_selector_item_free_all(items);
+        return false;
+    }
+
+    char *last_selected = NULL;
+    if (initial_game && initial_game[0])
+        last_selected = strdup(initial_game);
+
+    garlic_load_begin = garlic_micros();
+    uint64_t tick = garlic_load_begin;
+    error_t err = cpymo_engine_init_with_game_selector(
+        &engine, GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT,
+        GARLIC_MENU_FONTSIZE, (float)GARLIC_MENU_FONTSIZE * 2.0f,
+        GARLIC_MENU_NODES_PER_SCREEN,
+        &items, &garlic_selector_before, &garlic_selector_after,
+        &last_selected);
+    if (last_selected) free(last_selected);
+    if (err != CPYMO_ERR_SUCC) {
+        log_cb(RETRO_LOG_ERROR, "cpymo_engine_init_with_game_selector: %s\n",
+               cpymo_error_message(err));
+        cpymo_game_selector_item_free_all(items);
+        return false;
+    }
+
+    garlic_engine_ready = true;
+    garlic_game_loaded = true;
+    garlic_first_frame = true;
+    garlic_screen = GARLIC_SCREEN_MENU;
+    garlic_prof_reset();
+    {
+        uint64_t now = garlic_micros();
+        garlic_load_report(games_root, CPYMO_ERR_SUCC, now - tick, 0, 0);
+        log_cb(RETRO_LOG_INFO, "CPYMO_MENU root=%s games=%zu\n", games_root,
+               count);
+    }
+    return true;
+}
 
 bool retro_load_game(const struct retro_game_info *game)
 {
@@ -500,19 +768,39 @@ bool retro_load_game(const struct retro_game_info *game)
             return false;
         }
     }
+    char has_config = 0;
     {
         char cfg[PATH_MAX];
         struct stat cfg_sb;
-        if (snprintf(cfg, sizeof(cfg), "%s/gameconfig.txt", gamedir)
-                >= (int)sizeof(cfg)
-            || stat(cfg, &cfg_sb) != 0) {
+        has_config = (snprintf(cfg, sizeof(cfg), "%s/gameconfig.txt", gamedir)
+                          < (int)sizeof(cfg)
+                      && stat(cfg, &cfg_sb) == 0);
+        if (!has_config) {
+            /* §4 of the v0.23 task: a content path that is the GAMES FOLDER
+             * rather than a game is not an error -- it is the selector. The
+             * directory is verified by garlic_games_dir(), so nothing is
+             * guessed from the shape of the path. */
+            const char *env = getenv(GARLIC_GAMES_DIR_ENV);
+            const char *menu = getenv(GARLIC_MENU_ENV);
+            if (!menu || (menu[0] != '0' && menu[0] != 'n' && menu[0] != 'N')) {
+                char games_root[PATH_MAX];
+                if (garlic_games_dir(env, gamedir, GARLIC_GAMES_DIR,
+                                     games_root, sizeof(games_root))) {
+                    if (!getcwd(garlic_previous_directory,
+                                sizeof(garlic_previous_directory)))
+                        log_cb(RETRO_LOG_WARN, "getcwd: %s\n", strerror(errno));
+                    snprintf(garlic_menu_root, sizeof(garlic_menu_root), "%s",
+                             games_root);
+                    if (garlic_open_menu(games_root, NULL)) return true;
+                }
+            }
             log_cb(RETRO_LOG_ERROR,
                    "no gameconfig.txt in the game directory: %s\n", gamedir);
             /* "." asks the helper to scan `gamedir` itself, because the
              * missing file lives directly in it, not under a subdirectory. */
             char alt[PATH_MAX];
             if (garlic_diagnose_case(gamedir, ".", "gameconfig", 10, "txt",
-                                    alt, sizeof(alt)) == 1)
+                                     alt, sizeof(alt)) == 1)
                 log_cb(RETRO_LOG_WARN,
                        "a case-different file exists: %s\n", alt);
             return false;
@@ -530,7 +818,7 @@ bool retro_load_game(const struct retro_game_info *game)
     garlic_directory_changed = true;
     /* The engine still reads/writes the per-game "save" directory relative to
      * the game; a failure here must not stop the game from starting. */
-    if (!garlic_make_save_dir(gamedir, NULL)) {
+    if (!garlic_make_save_dir(gamedir, garlic_get_save_root())) {
         if (mkdir("save", 0755) != 0 && errno != EEXIST)
             log_cb(RETRO_LOG_WARN,
                    "save directory is not writable: %s\n", strerror(errno));
@@ -542,54 +830,46 @@ bool retro_load_game(const struct retro_game_info *game)
     tick_engine = garlic_load_begin;
     err = cpymo_engine_init(&engine, gamedir);
     tick_font = garlic_micros();
+    uint64_t tick_font_done = tick_font;
     if (err != CPYMO_ERR_SUCC) {
         log_cb(RETRO_LOG_ERROR, "cpymo_engine_init: %s\n", cpymo_error_message(err));
         garlic_load_report(gamedir, err, tick_font - tick_engine, 0, 0);
         goto fail;
     }
     garlic_engine_ready = true;
-    err = cpymo_backend_font_init(gamedir);
-    tick_alloc = garlic_micros();
-    if (err != CPYMO_ERR_SUCC) {
-        log_cb(RETRO_LOG_ERROR, "cpymo_backend_font_init: %s\n", cpymo_error_message(err));
-        garlic_load_report(gamedir, err, tick_font - tick_engine,
-                         tick_alloc - tick_font, 0);
-        goto fail;
-    }
 
-    soft_image.w = engine.gameconfig.imagesize_w;
-    soft_image.h = engine.gameconfig.imagesize_h;
-    if (soft_image.w == 0 || soft_image.h == 0 || soft_image.w > 2048 || soft_image.h > 2048) {
+    /* Font and canvas: the same two steps the selector performs after a
+     * selection, so one game behaves identically however it was started.
+     * `garlic_menu_root` supplies the card-wide font of a games folder, which
+     * is the same file the menu itself used. */
+    {
+        error_t ferr = cpymo_backend_font_init(gamedir, garlic_menu_root);
+        tick_alloc = garlic_micros();
+        tick_font_done = tick_alloc;
+        if (ferr != CPYMO_ERR_SUCC) {
+            log_cb(RETRO_LOG_ERROR, "cpymo_backend_font_init: %s\n",
+                   cpymo_error_message(ferr));
+            garlic_load_report(gamedir, ferr, tick_font - tick_engine,
+                              tick_alloc - tick_font, 0);
+            goto fail;
+        }
+    }
+    if (!garlic_apply_canvas(engine.gameconfig.imagesize_w,
+                             engine.gameconfig.imagesize_h)) {
         log_cb(RETRO_LOG_ERROR, "invalid or excessive game canvas size\n");
         goto fail;
     }
-    soft_image.line_stride = soft_image.w * 4;
-    soft_image.pixel_stride = 4;
-    soft_image.r_offset = 2;
-    soft_image.g_offset = 1;
-    soft_image.b_offset = 0;
-    soft_image.a_offset = 3;
-    soft_image.has_alpha_channel = false;
-    soft_image.pixels = (uint8_t *)calloc(soft_image.h, soft_image.line_stride);
-    garlic_rgb565_frame = (uint16_t *)calloc(
-        GARLIC_OUTPUT_WIDTH * GARLIC_OUTPUT_HEIGHT, sizeof(uint16_t));
-    if (!soft_image.pixels || !garlic_rgb565_frame) {
-        log_cb(RETRO_LOG_ERROR, "GarlicOS: frame allocation failed\n");
-        goto fail;
-    }
-
-    soft_context.font = &font;
-    soft_context.render_target = &soft_image;
-    soft_context.logical_screen_w = soft_image.w;
-    soft_context.logical_screen_h = soft_image.h;
-    soft_context.scale_on_load_image = false;
-    cpymo_backend_software_set_context(&soft_context);
     garlic_first_frame = true;
     garlic_game_loaded = true;
+    garlic_screen = GARLIC_SCREEN_GAME;
+    snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", gamedir);
     garlic_prof_reset();
+    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u (direct)\n", gamedir,
+           (unsigned)engine.gameconfig.imagesize_w,
+           (unsigned)engine.gameconfig.imagesize_h);
     garlic_load_report(gamedir, CPYMO_ERR_SUCC, tick_font - tick_engine,
-                      tick_alloc - tick_font,
-                      garlic_micros() - tick_alloc);
+                      tick_font_done - tick_font,
+                      garlic_micros() - tick_font_done);
     return true;
 
 fail:

@@ -103,8 +103,22 @@ check "Story.sh found its own directory" "game_dir=$APPS/Story" "$WORK/f.log"
 
 cp "$ROOT/deploy/Roms/APPS/CPyMO.sh" "$APPS/Ambiguous.sh"
 chmod +x "$APPS/Ambiguous.sh" "$APPS/GameOne.sh" "$APPS/Story.sh"
+
+echo "== 7b. several games, menu ON (default): the FOLDER is launched"
 set +e
-CPYMO_LOG="$WORK/g.log" "$APPS/Ambiguous.sh" >/dev/null 2>"$WORK/g.err"
+CPYMO_LOG="$WORK/g0.log" "$APPS/Ambiguous.sh" >/dev/null 2>&1
+rc0=$?
+set -e
+if [ "$rc0" = "0" ]; then echo "  ok    the folder launch succeeds"; else
+  echo "  FAIL  folder launch exited $rc0"; failures=$((failures+1)); fi
+check "the games folder is what RetroArch is given" \
+      "[$APPS]" "$WORK/g0.log"
+check "the header says the games dir" "games_dir=$APPS" "$WORK/g0.log"
+check "and that the selector is starting" "launching_game_selector games_dir=$APPS" "$WORK/g0.log"
+
+echo "== 7c. CPYMO_MENU=0 restores the refusal"
+set +e
+CPYMO_MENU=0 CPYMO_LOG="$WORK/g.log" "$APPS/Ambiguous.sh" >/dev/null 2>"$WORK/g.err"
 rc=$?
 set -e
 if [ "$rc" = "45" ]; then echo "  ok    an ambiguous launch exits 45"; else

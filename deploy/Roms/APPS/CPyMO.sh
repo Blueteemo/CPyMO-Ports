@@ -51,20 +51,31 @@ fi
 
 # --- which game -----------------------------------------------------
 GAME="${1:-${CPYMO_GAME:-}}"
+MENU="${CPYMO_MENU:-1}"
 if [ -z "$GAME" ] && [ -e "$APPDIR/$SELF/gameconfig.txt" ]; then
     GAME="$APPDIR/$SELF"
 fi
 if [ -z "$GAME" ]; then
-    # Exactly one sibling game? Then it is unambiguous.
+    # Count the sibling games.
     found=''
     count=0
     for d in "$APPDIR"/*/; do
+        # The launcher's own directory (when it is named after a game) and
+        # the save root are not games.
+        case "${d%/}" in "$APPDIR/saves") continue ;; esac
         [ -f "$d/gameconfig.txt" ] || continue
         count=$((count + 1))
         found="${d%/}"
     done
     if [ "$count" = "1" ]; then
+        # One game: the unambiguous case, exactly as before.
         GAME="$found"
+    elif [ "$MENU" != "0" ]; then
+        # Several (or none): hand the FOLDER to the core and let the built-in
+        # selector choose. That is what §4 exists for; the core verifies the
+        # directory and falls back to a plain load if it is not one.
+        GAME="$APPDIR"
+        GAMES_DIR="$APPDIR"
     else
         {
             echo 'stage=refused_ambiguous_game'
@@ -73,7 +84,8 @@ if [ -z "$GAME" ]; then
             for d in "$APPDIR"/*/; do
                 [ -f "$d/gameconfig.txt" ] && echo "  ${d%/}"
             done
-            echo 'set CPYMO_GAME, or name a launcher after the game directory.'
+            echo 'set CPYMO_GAME, name a launcher after the game, or leave'
+            echo 'CPYMO_MENU unset to let the built-in selector choose.'
         } >&2
         exit 45
     fi
@@ -85,6 +97,8 @@ case "$GAME" in
     *) GAMEDIR="$GAME" ;;
 esac
 GAME_ID="${GAMEDIR##*/}"
+export CPYMO_GAMES_DIR="${GAMES_DIR:-}"
+if [ -z "$CPYMO_GAMES_DIR" ]; then unset CPYMO_GAMES_DIR; fi
 
 RA_ROOT="${CPYMO_RETROARCH_HOME:-/mnt/mmc/CFW/retroarch}"
 RA_BIN="${CPYMO_RETROARCH_BIN:-$RA_ROOT/retroarch}"
@@ -121,6 +135,8 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
     echo "game=$GAME"
     echo "game_dir=$GAMEDIR"
     echo "game_id=$GAME_ID"
+    echo "menu=${CPYMO_MENU:-1}"
+    echo "games_dir=${CPYMO_GAMES_DIR:-<the game directory>}"
     echo "core=${CORE:-<not found>}"
     echo "save_root=${CPYMO_SAVE_ROOT:-<unset: in-game save/>}"
     echo "retroarch=$RA_BIN"
@@ -138,8 +154,14 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
     [ -n "$CORE" ] && [ -r "$CORE" ] || {
         echo "stage=refused_missing_core core=${CORE:-<not found>}"; exit 41; }
-    [ -f "$GAMEDIR/gameconfig.txt" ] || {
-        echo "stage=refused_no_gameconfig game_dir=$GAMEDIR"; exit 41; }
+    # Either a real game (its own gameconfig.txt) or the games folder the
+    # built-in selector will read.
+    if [ ! -f "$GAMEDIR/gameconfig.txt" ]; then
+        if [ -z "${CPYMO_GAMES_DIR:-}" ]; then
+            echo "stage=refused_no_gameconfig game_dir=$GAMEDIR"; exit 41
+        fi
+        echo "stage=launching_game_selector games_dir=$CPYMO_GAMES_DIR"
+    fi
     if [ ! -x "$RA_BIN" ]; then
         echo 'stage=refused_missing_retroarch_binary'; exit 42
     fi

@@ -11,6 +11,7 @@ python3 "$ROOT/tests/test_parse_perf2.py"
 python3 "$ROOT/tests/test_audio_deps.py"
 bash "$ROOT/tests/run_launcher_test.sh"
 bash "$ROOT/tests/run_game_loader_test.sh"
+bash "$ROOT/tests/run_menu_test.sh"
 BUILD="${BUILD:-$ROOT/build-stage-v21}"
 BUILD="$BUILD" bash "$ROOT/tests/run_stage_v20.sh"
 python3 "$ROOT/tools/verify_uclibc_core.py" "$ROOT/target/cpymo_libretro.so" >/dev/null

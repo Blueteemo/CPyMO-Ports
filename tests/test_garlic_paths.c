@@ -249,6 +249,90 @@ int main(void)
         for (size_t i = 0; i < n; ++i) free(dirs[i]);
     }
 
+    printf("== font candidates (the order the log will print)\n");
+    {
+        char cand[8][GARLIC_PATH_MAX];
+        size_t n;
+
+        /* A game directory and a frontend directory, in the documented
+         * order: the game's own font first, the frontend's second. */
+        n = garlic_font_candidates("/games/Yume", "/sysdir", NULL,
+                                  (char *)cand, GARLIC_PATH_MAX, 8);
+        CHECK(n == 4, "four candidates for a game + a frontend (%zu)", n);
+        if (n == 4) {
+            CHECK(strcmp(cand[0], "/games/Yume/system/default.ttf") == 0,
+                  "the game's own font is tried first (%s)", cand[0]);
+            CHECK(strcmp(cand[1], "/games/Yume/system/default.otf") == 0,
+                  "then the game's .otf (%s)", cand[1]);
+            CHECK(strcmp(cand[2], "/sysdir/cpymo/default.ttf") == 0,
+                  "then the frontend's font (%s)", cand[2]);
+            CHECK(strcmp(cand[3], "/sysdir/cpymo/default.otf") == 0,
+                  "then the frontend's .otf (%s)", cand[3]);
+        }
+
+        /* The MENU runs before any game exists: no game directory at all. */
+        n = garlic_font_candidates(NULL, "/sysdir", "/explicit/menu.ttf",
+                                  (char *)cand, GARLIC_PATH_MAX, 8);
+        CHECK(n == 3, "the menu skips the game candidates (%zu)", n);
+        if (n == 3) {
+            CHECK(strcmp(cand[0], "/explicit/menu.ttf") == 0,
+                  "an explicit menu font is used VERBATIM, not joined (%s)",
+                  cand[0]);
+            CHECK(strcmp(cand[1], "/sysdir/cpymo/default.ttf") == 0,
+                  "and the frontend's font still follows (%s)", cand[1]);
+        }
+
+        /* No frontend directory: only the game's own. */
+        n = garlic_font_candidates("/games/Yume", NULL, NULL,
+                                  (char *)cand, GARLIC_PATH_MAX, 8);
+        CHECK(n == 2, "an empty systemdir contributes nothing (%zu)", n);
+
+        /* Nothing usable at all is 0, not a template path with "NULL" in it. */
+        n = garlic_font_candidates(NULL, NULL, NULL,
+                                  (char *)cand, GARLIC_PATH_MAX, 8);
+        CHECK(n == 0, "no inputs -> no candidates (%zu)", n);
+
+        /* The cap is honoured, so a caller with room for two gets two. */
+        n = garlic_font_candidates("/games/Yume", "/sysdir", NULL,
+                                  (char *)cand, GARLIC_PATH_MAX, 2);
+        CHECK(n == 2, "the caller's cap is honoured (%zu)", n);
+        if (n == 2) {
+            for (size_t i = 0; i < n; ++i)
+                CHECK(strncmp(cand[i], "/games/Yume/", 12) == 0,
+                      "and it keeps the FIRST candidates (%s)", cand[i]);
+        }
+    }
+
+    printf("== games directory (env -> content -> convention)\n");
+    {
+        char out[PATHBUF], games[PATHBUF], elsewhere[PATHBUF];
+
+        rooted(games, sizeof(games), "games");
+        rooted(elsewhere, sizeof(elsewhere), "not_a_dir");
+
+        CHECK(garlic_games_dir(games, NULL, NULL, out, sizeof(out))
+              && strcmp(out, games) == 0,
+              "the environment value is honoured (%s)", out);
+        CHECK(garlic_games_dir(NULL, games, NULL, out, sizeof(out))
+              && strcmp(out, games) == 0,
+              "so is a directory derived from the content (%s)", out);
+        CHECK(garlic_games_dir(NULL, NULL, games, out, sizeof(out))
+              && strcmp(out, games) == 0,
+              "and the compile-time convention as the last resort (%s)", out);
+
+        /* A STALE environment value must not win over a real directory: the
+         * card moved, the folder was renamed. */
+        CHECK(garlic_games_dir(elsewhere, games, NULL, out, sizeof(out))
+              && strcmp(out, games) == 0,
+              "a nonexistent env value falls through to the content dir (%s)", out);
+
+        CHECK(!garlic_games_dir(elsewhere, elsewhere, elsewhere,
+                               out, sizeof(out)),
+              "three nonexistent candidates -> false, not a guess");
+        CHECK(!garlic_games_dir("", "", "", out, sizeof(out)),
+              "empty strings are skipped, not used as a path");
+    }
+
     rm_rf(root);
 
     printf("\n%s (%d failure%s)\n", failures ? "FAIL" : "PASS",

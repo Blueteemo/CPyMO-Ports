@@ -68,14 +68,19 @@ check(s21["effective_retro_run_hz"] < 7,
 
 # --- 4. the new fields are read when the core provides them ----------
 synthetic = "\n".join([
-    "CPYMO_PERF v0.21 frames=180 draws=2 elapsed_ms=1000 fps_x10=1800 "
-    "update_us_avg=100 draw_us_avg=200000 convert_us_avg=5000 "
+    "CPYMO_PERF v0.21 screen=menu frames=180 draws=2 elapsed_ms=1000 "
+    "fps_x10=1800 update_us_avg=100 draw_us_avg=200000 convert_us_avg=5000 "
     "outside_us_avg=3000 video_us_avg=8000 audio_us_avg=700",
 ])
 r = m.parse_perf(synthetic)
 check(len(r) == 1 and r[0]["audio_us_avg"] == 700,
       "the extended line parses (v0.23 core)")
 check(r[0]["outside_us_avg"] == 3000, "outside_us is captured")
+
+# The v0.21 parser must SKIP the new `screen=` word, not be confused by it:
+# it is not a number and has no '=' value the regex would swallow.
+check(r[0]["frames"] == 180 and r[0]["fps_x10"] == 1800,
+      "a leading non-numeric field does not shift the others")
 
 # --- 5. the load report -------------------------------------------
 loadtext = ("CPYMO_LOAD gamedir=/media/APPS/Game ok=1 total_us=250000 "

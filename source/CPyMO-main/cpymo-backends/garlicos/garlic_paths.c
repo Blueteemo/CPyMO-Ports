@@ -310,3 +310,66 @@ bool garlic_scan_game_dirs(const char *root, char *out[], size_t max_dirs,
     *out_count = stored;
     return true;
 }
+
+/* ------------------------------------------------------------------ */
+/* the platform decisions the selector needs                            */
+/* ------------------------------------------------------------------ */
+
+size_t garlic_font_candidates(const char *gamedir, const char *systemdir,
+                             const char *menu_font,
+                             char *out, size_t out_size, size_t max_candidates)
+{
+    if (!out || out_size == 0 || max_candidates == 0) return 0;
+    size_t n = 0;
+
+    /* The explicit font is used VERBATIM: the user (or the packaging step)
+     * named a file, so nothing is appended to it. `gp_strlcpy` returns the
+     * source length, so a name that would not fit is skipped, never cut. */
+    if (menu_font && menu_font[0] && n < max_candidates) {
+        if (gp_strlcpy(out, menu_font, out_size) < out_size) ++n;
+    }
+
+    /* "<dir>/<sub>", appended only when the result fits. Duplicate entries
+     * are kept on purpose: the log is meant to show the order really tried. */
+    #define GP_ADD(DIR, SUB)                                                \
+        do {                                                                \
+            if (n < max_candidates) {                                       \
+                char *slot = out + n * out_size;                            \
+                int w = snprintf(slot, out_size, "%s/%s", (DIR), (SUB));   \
+                if (w > 0 && (size_t)w < out_size) ++n;                     \
+            }                                                               \
+        } while (0)
+
+    if (gamedir && gamedir[0]) {
+        GP_ADD(gamedir, "system/default.ttf");
+        GP_ADD(gamedir, "system/default.otf");
+    }
+    if (systemdir && systemdir[0]) {
+        GP_ADD(systemdir, "cpymo/default.ttf");
+        GP_ADD(systemdir, "cpymo/default.otf");
+    }
+    #undef GP_ADD
+    return n;
+}
+
+bool garlic_games_dir(const char *env_value, const char *content_dir,
+                     const char *fallback_dir, char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return false;
+
+    /* Ordered, and each candidate verified, so a stale CPYMO_GAMES_DIR (a
+     * card that moved, a directory that was renamed) cannot win over a real
+     * one. */
+    const char *order[3];
+    size_t n = 0;
+    if (env_value && env_value[0]) order[n++] = env_value;
+    if (content_dir && content_dir[0]) order[n++] = content_dir;
+    if (fallback_dir && fallback_dir[0]) order[n++] = fallback_dir;
+
+    for (size_t i = 0; i < n; ++i) {
+        if (!gp_is_dir(order[i])) continue;
+        if (gp_strlcpy(out, order[i], out_size) >= out_size) continue;
+        return true;
+    }
+    return false;
+}

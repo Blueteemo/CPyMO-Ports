@@ -95,4 +95,45 @@ int garlic_diagnose_case(const char *dir,
 bool garlic_scan_game_dirs(const char *root, char *out[], size_t max_dirs,
                          size_t *out_count);
 
+/* ------------------------------------------------------------------ */
+/* the two decisions the game selector needs from the platform layer     */
+/* ------------------------------------------------------------------ */
+
+/* Font candidates, most specific first, written into `out` (each of size
+ * `out_size`). The ORDER is part of the contract, because the log prints
+ * exactly what was tried:
+ *
+ *     1..2  the game's own   <gamedir>/system/default.{ttf,otf}
+ *     3..4  the frontend's    <systemdir>/cpymo/default.{ttf,otf}
+ *
+ * For the game selector there is no game yet, so the caller passes the GAMES
+ * directory as `gamedir`; the two candidates then read
+ * `<games_dir>/system/default.{ttf,otf}`, which is where a card-wide font
+ * belongs. `gamedir` is skipped when NULL/empty, and `systemdir` likewise
+ * when the frontend has none. An explicit menu font (`menu_font`, from the
+ * environment) is tried FIRST and used VERBATIM, because a user who names a
+ * font means that file. Returns the number written (<= `max_candidates`). */
+size_t garlic_font_candidates(const char *gamedir, const char *systemdir,
+                             const char *menu_font,
+                             char *out, size_t out_size, size_t max_candidates);
+
+/* The directory that holds the games.
+ *
+ * The launcher decides; the core must not invent a path out of thin air. The
+ * inputs, in the order they are honoured:
+ *
+ *   1. `env_value`    -- CPYMO_GAMES_DIR, the launcher's explicit answer;
+ *   2. `content_dir`  -- a directory derived from what the frontend handed to
+ *                        retro_load_game; the caller passes what makes sense
+ *                        for its own launch style;
+ *   3. `fallback_dir` -- the compile-time convention (GARLIC_GAMES_DIR),
+ *                        used only if it really exists.
+ *
+ * Each step is verified with a real stat(), so a stale environment value
+ * cannot shadow a usable directory, and nothing is guessed. Returns false when
+ * none of them is a directory, so the caller can keep the plain
+ * single-game path. */
+bool garlic_games_dir(const char *env_value, const char *content_dir,
+                     const char *fallback_dir, char *out, size_t out_size);
+
 #endif
