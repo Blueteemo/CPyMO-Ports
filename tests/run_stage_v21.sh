@@ -16,6 +16,9 @@ bash "$ROOT/tests/run_menu_test.sh"
 # `sha256sum -c` agree with an omission, so it is checked, not assumed.
 python3 "$ROOT/tests/test_manifest_coverage.py"
 python3 "$ROOT/tests/test_readme_claims.py"
+# And the bundle must carry the source the zip describes (it is packaged one
+# commit before the digest records are committed).
+python3 "$ROOT/tests/test_bundle_covers_source.py"
 BUILD="${BUILD:-$ROOT/build-stage-v21}"
 BUILD="$BUILD" bash "$ROOT/tests/run_stage_v20.sh"
 python3 "$ROOT/tools/verify_uclibc_core.py" "$ROOT/target/cpymo_libretro.so" >/dev/null

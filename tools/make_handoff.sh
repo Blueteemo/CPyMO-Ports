@@ -22,25 +22,28 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 export LC_ALL=C
 
-echo "[1/7] the package (its digests are inputs to the tree manifest)"
+echo "[1/8] the package (its digests are inputs to the tree manifest)"
 python3 tools/make_return_package.py | tail -4
 
-echo "[2/7] the tree manifest (it hashes the zip, so it runs AFTER)"
+echo "[2/8] the tree manifest (it hashes the zip, so it runs AFTER)"
 python3 tools/make_tree_manifest.py | tail -1
 
-echo "[3/7] in-zip manifest, read back from the archive"
+echo "[3/8] in-zip manifest, read back from the archive"
 python3 tools/verify_package.py | tail -2
 
-echo "[4/7] zip vs working tree (freshness + manifest line endings)"
+echo "[4/8] zip vs working tree (freshness + manifest line endings)"
 python3 tools/check_package_freshness.py | tail -2
 
-echo "[5/7] does the tree manifest cover the whole tree?"
+echo "[5/8] does the tree manifest cover the whole tree?"
 python3 tests/test_manifest_coverage.py | tail -1
 
-echo "[6/7] do the README's numbers match this package?"
+echo "[6/8] do the README's numbers match this package?"
 python3 tests/test_readme_claims.py | tail -1
 
-echo "[7/7] GNU sha256sum -c, the way a reviewer runs it"
+echo "[7/8] does the bundle carry the source the zip describes?"
+python3 tests/test_bundle_covers_source.py | tail -1
+
+echo "[8/8] GNU sha256sum -c, the way a reviewer runs it"
 ( cd dist && sha256sum -c SHA256SUMS ) 2>&1 | sed 's/^/   /'
 ENTRIES="$(wc -l < SHA256SUMS)"
 sha256sum -c SHA256SUMS >/dev/null 2>&1 \
