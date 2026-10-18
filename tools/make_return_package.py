@@ -202,8 +202,17 @@ def bundle() -> Path:
     r = None
     # `--all` needs >= 2.45 for the branch set we have; `HEAD` works everywhere
     # and still carries every commit reachable from the current branch.
-    for args in (["bundle", "create", str(out), "--all"],
-                 ["bundle", "create", str(out), "HEAD"]):
+    #
+    # `-c pack.threads=1` is NOT a speed knob, it is the reproducibility one.
+    # `git bundle` packs the objects, and with pack.threads unset git picks a
+    # thread count from the core count; measured on this 12-core host, FIVE
+    # back-to-back `git bundle create ... --all` calls from an unchanged
+    # repository produced FOUR DIFFERENT digests (33d23cc7, 20f78298, 71d5918a,
+    # bbb3bca9...) at slightly different SIZES. With pack.threads=1 the same
+    # five calls are byte-identical, so the digest recorded in SHA256SUMS means
+    # something.
+    common = ["-c", "pack.threads=1", "bundle", "create", str(out)]
+    for args in (common + ["--all"], common + ["HEAD"]):
         r = subprocess.run([git, *args], cwd=ROOT, capture_output=True, text=True)
         if r.returncode == 0:
             return out
