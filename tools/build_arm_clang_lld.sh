@@ -94,6 +94,14 @@ COMMON_FLAGS=(
 )
 COMMON_FLAGS+=(-DDISABLE_AUDIO -DDISABLE_MOVIE -DGARLIC_NO_FFMPEG)
 
+# `--hash-style=both` is a HARD requirement on this firmware, not a nicety:
+# the RG35XX log records "libretro API 版本: 1, 未按照 API 编译: 1" from a core
+# with only `.gnu.hash`, and the 10.19 task document names the missing SysV
+# `.hash` table as the cause of an earlier `retro_init` lookup failure. The
+# device-tested core (sha256 ed3bb8b1…) carries BOTH tables; lld's default is
+# GNU-only, so pass it explicitly and assert the result below.
+HASH_STYLE_FLAG="-Wl,--hash-style=both"
+
 OBJECTS=()
 rm -f "$BUILD"/*.o
 while IFS= read -r src; do
@@ -106,6 +114,7 @@ OUT="$BUILD/cpymo_libretro.so"
 "$CLANG" "${COMMON_FLAGS[@]}" -shared \
   -fuse-ld=lld \
   -nostdlib \
+  "$HASH_STYLE_FLAG" \
   "$(win "$SYSROOT/usr/lib/crti.o")" \
   "${OBJECTS[@]}" \
   "$(win "$SYSROOT/usr/lib/crtn.o")" \
@@ -142,7 +151,17 @@ echo "== linked object"
 "$ARM_READELF" -h "$OUT" | grep -E 'Class:|Machine:|Type:|Flags:' | sed 's/^/   /'
 "$ARM_READELF" -A "$OUT" | grep -E 'Tag_(CPU_arch|CPU_arch_profile|FP_arch|ABI_VFP_args)' | sed 's/^/   /' || true
 "$ARM_READELF" -d "$OUT" | grep NEEDED | sed 's/^/   /'
+
+# The two hash tables, asserted. `--hash-style=both` above and this check
+# together mean a future compiler swap cannot silently drop the SysV table again.
+HASHES="$("$ARM_READELF" -d "$OUT" | grep -oE '\(GNU_HASH\)|\(HASH\)' | sort -u | tr '\n' ' ')"
+echo "   hash tables: ${HASHES:-none}"
+case "$HASHES" in
+  *"(GNU_HASH)"*"(HASH)"*|*"(HASH)"*"(GNU_HASH)"*) : ;;
+  *) echo "FAIL: $MODE core lacks SysV .hash or .gnu.hash (got: ${HASHES:-none})" >&2; exit 4 ;;
+esac
+
 sha256sum "$OUT"
 python3 "$ROOT/tools/verify_uclibc_core.py" "$OUT"
-echo "PASS ARM/$MODE: ARM/uClibc core built with clang+lld; ABI verified."
+echo "PASS ARM/$MODE: ARM/uClibc core built with clang+lld; ABI and both hash tables verified."
 echo "NOTE: no RG35XX hardware run yet for this artifact."
