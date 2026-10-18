@@ -280,7 +280,11 @@ void cpymo_backend_image_draw(
                      u_offset, u_scale, v_offset, v_scale, dstw, dsth))
         return;
 
-    const uint8_t a_byte = (uint8_t)(alpha * 255.0f);
+    /* NOT (uint8_t)(alpha * 255.0f): that byte-quantized the fade and skipped
+     * every 0 < alpha < 1/255 span, while v0.21 still blended it and could
+     * lower an 8-bit channel by one. `a != 0` below is the exact test (with a
+     * source alpha channel, a is the texel alpha times alpha; a == 0.0f makes
+     * the blend collapse to (uint8_t)(u8f[dst] * 255.0f) == dst). */
     const bool opaque = (alpha == 1.0f);
 
     const size_t line_stride = srci->line_stride;
@@ -333,7 +337,12 @@ void cpymo_backend_image_draw(
                 continue;
             }
 
-            if (a_byte == 0) continue;
+            /* `alpha != 0.0f` rules out the exact no-op; a tiny fade must
+             * still go through the float blend, exactly as v0.21 did. When the
+             * span's effective alpha is 0 (a 0-alpha texel, or alpha == 0),
+             * the blend collapses back to the destination byte, so nothing is
+             * written and `continue` is equivalent. */
+            if (alpha == 0.0f) continue;
 
             float a = cpymo_backend_software_image_sample_alpha(
                 srci, tex, alpha);
