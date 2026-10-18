@@ -22,28 +22,36 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 export LC_ALL=C
 
-echo "[1/8] the package (its digests are inputs to the tree manifest)"
+echo "[1/9] a first package, to learn the file set (counts only)"
+python3 tools/make_return_package.py | tail -2
+
+echo "[2/9] make the README's counts match that file set"
+python3 tools/sync_readme_counts.py | tail -2
+
+# The README is INSIDE the zip, so editing it invalidates the first package.
+# The file set does not change, so the counts the README now states stay
+# correct and the rebuild is the final answer.
+echo "[3/9] the final package (its digests feed the tree manifest)"
 python3 tools/make_return_package.py | tail -4
 
-echo "[2/8] the tree manifest (it hashes the zip, so it runs AFTER)"
+echo "[4/9] the tree manifest (it hashes the zip, so it runs AFTER)"
 python3 tools/make_tree_manifest.py | tail -1
 
-echo "[3/8] in-zip manifest, read back from the archive"
+echo "[5/9] in-zip manifest, read back from the archive"
 python3 tools/verify_package.py | tail -2
 
-echo "[4/8] zip vs working tree (freshness + manifest line endings)"
+echo "[6/9] zip vs working tree (freshness + manifest line endings)"
 python3 tools/check_package_freshness.py | tail -2
 
-echo "[5/8] does the tree manifest cover the whole tree?"
+echo "[7/9] does the tree manifest cover the whole tree?"
 python3 tests/test_manifest_coverage.py | tail -1
 
-echo "[6/8] do the README's numbers match this package?"
+echo "[8/9] README counts, the bundle's source"
+python3 tools/sync_readme_counts.py --check | tail -1
 python3 tests/test_readme_claims.py | tail -1
-
-echo "[7/8] does the bundle carry the source the zip describes?"
 python3 tests/test_bundle_covers_source.py | tail -1
 
-echo "[8/8] GNU sha256sum -c, the way a reviewer runs it"
+echo "[9/9] GNU sha256sum -c, the way a reviewer runs it"
 ( cd dist && sha256sum -c SHA256SUMS ) 2>&1 | sed 's/^/   /'
 ENTRIES="$(wc -l < SHA256SUMS)"
 sha256sum -c SHA256SUMS >/dev/null 2>&1 \

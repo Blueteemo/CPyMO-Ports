@@ -61,6 +61,20 @@ def main(argv: list[str]) -> int:
         print(f"actual: bundle={bpath.stat().st_size/1e6:.2f} MB  "
               f"{bundle_sha[:16]}...")
 
+    # The counts change whenever the packaged FILE SET changes (a new test is
+    # added and the same sentence in the README goes stale). When it does,
+    # print the fix command AND the exact sentences, so the correction is a
+    # replacement and not a re-derivation.
+    expected_entry = f"zip 里 **{entries} 个条目**"
+    expected_cover = f"`MANIFEST.sha256` 覆盖其中 **{covered}** 条"
+    if f"**{entries} 个条目**" not in text or \
+       f"**{covered}** 条" not in text:
+        print()
+        print("  --- run: python3 tools/sync_readme_counts.py ---")
+        print(f"  {expected_entry}（没有目录条目，条目即文件），")
+        print(f"  {expected_cover} —— 也就是除它自己以外的**每一个**")
+        print("  ---")
+
     check(f"{entries} 个条目" in text, f"README states the entry count ({entries})")
     check(str(covered) in text or f"{covered} 条" in text,
           f"README states the manifest coverage ({covered})")
