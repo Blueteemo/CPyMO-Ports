@@ -7,6 +7,7 @@ option(GARLIC_BOOTSTRAP_NO_AUDIO "GarlicOS bootstrap without FFmpeg/audio/video"
 set(SOURCES
   libretro.c
   ../garlicos/garlic_adapter.c
+  ../garlicos/garlic_paths.c
 )
 aux_source_directory(../../cpymo SOURCES)
 aux_source_directory(../software SOURCES)

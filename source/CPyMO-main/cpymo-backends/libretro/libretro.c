@@ -25,6 +25,7 @@
 #include <libswscale/swscale.h>
 #endif
 #include "../garlicos/garlic_adapter.h"
+#include "../garlicos/garlic_paths.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "../../stb/stb_image.h"
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
@@ -216,18 +217,61 @@ void cpymo_backend_movie_free_surface(void)
 }
 #endif /* GARLIC_NO_FFMPEG */
 
+/* The portable path/save logic lives in garlic_paths.c, next to the button and
+ * blit adapter, so it can be unit-tested on a host (tests/test_garlic_paths.c).
+ * Here we only supply the two things the core decides for itself: the game
+ * directory it must act on, and the optional save root.
+ *
+ * Save isolation (§3 of the v0.23 task)
+ * -----------------------------------
+ * CPYMO's save layer addresses saves as "<gamedir>/save/<name>"; the fat save
+ * API passes `gamedir` through. We keep that contract and place the isolation
+ * in the *directory*: if CPYMO_SAVE_ROOT is set, saves go to
+ * "<root>/<game_id>/<name>" instead, so many games can share one writable
+ * location without ever reading each other's slots. Unset means the historical
+ * layout, so the saves already on the user's card keep working. */
+static char garlic_save_root[GARLIC_PATH_MAX];
+static bool garlic_save_root_known = false;
+
+static const char *garlic_get_save_root(void)
+{
+    if (!garlic_save_root_known) {
+        const char *env = getenv("CPYMO_SAVE_ROOT");
+        garlic_save_root[0] = '\0';
+        if (env && env[0]) {
+            if (strlen(env) >= sizeof(garlic_save_root))
+                log_cb(RETRO_LOG_WARN,
+                       "CPYMO_SAVE_ROOT is too long; using the in-game save dir\n");
+            else
+                strcpy(garlic_save_root, env);
+        }
+        garlic_save_root_known = true;
+    }
+    return garlic_save_root;
+}
+
+static FILE *garlic_open_save(const char *gamedir, const char *name,
+                             const char *mode)
+{
+    char path[GARLIC_PATH_MAX];
+    if (!garlic_save_path(path, sizeof(path), gamedir, garlic_get_save_root(),
+                          name)) {
+        log_cb(RETRO_LOG_WARN, "save path too long for %s\n", name);
+        return NULL;
+    }
+    if (mode[0] == 'w')
+        (void)garlic_make_save_dir(gamedir, garlic_get_save_root());
+    return fopen(path, mode);
+}
+
 FILE *cpymo_backend_read_save(const char *gamedir, const char * name)
 {
-    char *path = (char *)alloca(strlen(name) + 8);
-    sprintf(path, "save/%s", name);
-    return fopen(path, "rb");
+    return garlic_open_save(gamedir, name, "rb");
 }
 
 FILE *cpymo_backend_write_save(const char *gamedir, const char * name)
 {
-    char *path = (char *)alloca(strlen(name) + 8);
-    sprintf(path, "save/%s", name);
-    return fopen(path, "wb");
+    return garlic_open_save(gamedir, name, "wb");
 }
 
 static void fallback_log(enum retro_log_level level, const char *fmt, ...)
@@ -411,17 +455,46 @@ bool retro_load_game(const struct retro_game_info *game)
         log_cb(RETRO_LOG_ERROR, "stat: %s\n", strerror(errno));
         return false;
     }
-    char *path_copy = strdup(game->path);
-    if (!path_copy)
-        return false;
-    const char *input_directory = S_ISDIR(sb.st_mode) ? game->path : dirname(path_copy);
+
+    /* Universal game loading (§1 of the v0.23 task)
+     * -------------------------------------------
+     * The launcher may hand us a game DIRECTORY or a FILE inside it (normally
+     * "gameconfig.txt"); both must work, for any game. `is_dir` is decided
+     * here with a real stat(), never by guessing from the name's shape, so a
+     * directory whose name contains a dot ("v1.2") is not mistaken for a
+     * file. `gameconfig.txt` is REQUIRED and is reported as a missing file
+     * rather than as an opaque engine error. */
     char gamedir[PATH_MAX];
-    if (!realpath(input_directory, gamedir)) {
-        log_cb(RETRO_LOG_ERROR, "realpath: %s\n", strerror(errno));
-        free(path_copy);
-        return false;
+    {
+        char resolved[PATH_MAX];
+        if (!realpath(game->path, resolved)) {
+            log_cb(RETRO_LOG_ERROR, "realpath: %s\n", strerror(errno));
+            return false;
+        }
+        if (!garlic_dir_of_content(resolved, S_ISDIR(sb.st_mode) != 0,
+                                 gamedir, sizeof(gamedir))) {
+            log_cb(RETRO_LOG_ERROR, "content path too long\n");
+            return false;
+        }
     }
-    free(path_copy);
+    {
+        char cfg[PATH_MAX];
+        struct stat cfg_sb;
+        if (snprintf(cfg, sizeof(cfg), "%s/gameconfig.txt", gamedir)
+                >= (int)sizeof(cfg)
+            || stat(cfg, &cfg_sb) != 0) {
+            log_cb(RETRO_LOG_ERROR,
+                   "no gameconfig.txt in the game directory: %s\n", gamedir);
+            /* "." asks the helper to scan `gamedir` itself, because the
+             * missing file lives directly in it, not under a subdirectory. */
+            char alt[PATH_MAX];
+            if (garlic_diagnose_case(gamedir, ".", "gameconfig", 10, "txt",
+                                    alt, sizeof(alt)) == 1)
+                log_cb(RETRO_LOG_WARN,
+                       "a case-different file exists: %s\n", alt);
+            return false;
+        }
+    }
 
     if (!getcwd(garlic_previous_directory, sizeof(garlic_previous_directory))) {
         log_cb(RETRO_LOG_ERROR, "getcwd: %s\n", strerror(errno));
@@ -432,10 +505,13 @@ bool retro_load_game(const struct retro_game_info *game)
         return false;
     }
     garlic_directory_changed = true;
-    /* A missing save directory should not make the game fail to start.
-       Engine initialization can still safely ignore the absent save data. */
-    if (mkdir("save", 0755) != 0 && errno != EEXIST)
-        log_cb(RETRO_LOG_WARN, "save directory is not writable: %s\n", strerror(errno));
+    /* The engine still reads/writes the per-game "save" directory relative to
+     * the game; a failure here must not stop the game from starting. */
+    if (!garlic_make_save_dir(gamedir, NULL)) {
+        if (mkdir("save", 0755) != 0 && errno != EEXIST)
+            log_cb(RETRO_LOG_WARN,
+                   "save directory is not writable: %s\n", strerror(errno));
+    }
 
     err = cpymo_engine_init(&engine, gamedir);
     if (err != CPYMO_ERR_SUCC) {

@@ -6,6 +6,7 @@ research/build_arm_compare/
 research/build_arm_compare_clang/
 research/bench/
 build_*/
+build-*/
 build_arm_*/
 *.log
 __pycache__/
