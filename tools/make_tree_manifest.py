@@ -87,7 +87,13 @@ def main() -> int:
         digest = hashlib.sha256((ROOT / rel).read_bytes()).hexdigest()
         lines.append(f"{digest} *{rel}\n")
 
-    original.write_text("".join(sorted(lines)), encoding="utf-8")
+    # `newline="\n"` is NOT cosmetic. On Windows, Python's text mode turns the
+    # "\n" in each line into "\r\n", and a manifest written that way no longer
+    # survives `sha256sum -c`: GNU sha256sum keeps the CR as part of the file
+    # name and reports every entry as "No such file or directory". The handoff
+    # manifest is LF-only, so this also keeps the two diffable line by line.
+    with open(original, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("".join(sorted(lines)))
     print(f"wrote {TEXT_NAME}: {len(lines)} entries "
           f"(was {sum(1 for _ in keep.read_text(encoding='utf-8').splitlines())}"
           f" in the handoff, now at {KEEP_ORIGINAL})")

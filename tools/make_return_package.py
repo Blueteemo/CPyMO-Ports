@@ -30,12 +30,19 @@ INCLUDE_DIRS = [
     "source",
     "research/reports",
     "research/tools",
+    # The handoff's own research brief and the measured conclusions. They are
+    # the documents the whole phase answers to, so a reviewer who wants to
+    # check "did they do what was asked?" needs them; they live at the TOP of
+    # research/ (not under reports/) and were missed by an earlier revision.
     "research/candidate_v022_soft",
     "research/candidate_v022_softfp",
     "research/candidate_v023_soft",
     "research/experimental",
     "research/logs",
     "research/baseline_frames",
+    # The A/B structure dumps beside the experimental cores: small, and the
+    # direct evidence for compare_arm_clang_lld.sh's 19 assertions.
+    "research/build_arm_compare_clang",
     "deploy",
     "docs",
     "tests",
@@ -46,6 +53,10 @@ INCLUDE_FILES = [
     "README_FOR_REVIEWER.md",
     "README.md",
     "00_请先阅读_本地研发入口.md",
+    # The brief and the conclusions the phase was measured against.
+    "research/研究任务与性能结论.md",
+    "research/交给本地DeepSeek的执行提示词.md",
+    "research/bench_baseline.log",
     # The handoff's own (v0.21-R1) manifest, so a reviewer can diff it against
     # the current SHA256SUMS and see exactly which lines this work changed. It is
     # shipped in addition to the package-relative SHA256SUMS written below.
@@ -54,7 +65,7 @@ INCLUDE_FILES = [
 EXCLUDE_SUFFIX = (".dis", ".byfunc")          # multi-MB raw dumps; kept in git
 EXCLUDE_PREFIX = ("research/local-sdk/", "research/local-output/",
                   "research/bench/", "build_arm_", "build-game-loader/",
-                  "build-garlic-paths/")
+                  "build-garlic-paths/", "build-menu/", "build-stage")
 INCLUDE_TOP = 400 * 1024 * 1024   # a sanity cap, not a real limit
 
 
@@ -102,11 +113,25 @@ def write_manifest(zip_path: Path, members: list[str]) -> tuple[Path, int]:
     A previous package shipped the v0.21 SHA256SUMS unchanged, so 6 listed
     files no longer matched and 89 packaged files were never listed at all.
 
+    The entry is added with a FIXED timestamp. `zipfile.write()` stores the
+    file's wall-clock mtime, and this manifest is the one member appended
+    AFTER the others, so without a fixed date two builds of an UNCHANGED tree
+    produced two different archives (same entries, same bytes, one timestamp)
+    -- and the digest published in dist/SHA256SUMS moved on every rebuild.
+    Measured: building twice from the same tree gave
+    `a1a84301b451...` then `22da16fbc19a...`, differing in exactly one
+    MANIFEST.sha256 header field. With a fixed date the archive is a fixed
+    point of its own inputs, so `dist/SHA256SUMS` means something.
+
     Notes:
     * the checkout contains Chinese filenames, so the manifest is UTF-8 (which
       is also what `sha256sum -c` reads on a modern Linux);
-    * each path is preceded by `*`, sha256sum's binary marker, so checking is
-      not affected by line-ending translation on a Windows checkout.
+    * each path is preceded by `*`, sha256sum's binary marker;
+    * `newline="\\n"`: in Python's text mode Windows turns every "\\n" into
+      "\\r\\n", and this machine's GNU sha256sum then keeps the CR as part of
+      the NAME -- every entry reported as "No such file or directory". The
+      in-package check reads the bytes through `splitlines()` and never
+      noticed, but a reviewer running `sha256sum -c` would have.
     """
     inner = ROOT / "dist" / "MANIFEST.sha256"
     lines = []
@@ -116,15 +141,22 @@ def write_manifest(zip_path: Path, members: list[str]) -> tuple[Path, int]:
             continue
         digest = hashlib.sha256(p.read_bytes()).hexdigest()
         lines.append(f"{digest} *{rel}\n")
-    inner.write_text("".join(lines), encoding="utf-8")
+    with open(inner, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("".join(lines))
 
-    with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as z:
-        z.write(inner, "MANIFEST.sha256")
+    # `ZipInfo` with an explicit date_time, because the default (the file's
+    # mtime) makes two builds of an unchanged tree differ. 1980-01-01 is the
+    # DOS epoch, which is what a zip can represent without overflow.
+    info = zipfile.ZipInfo("MANIFEST.sha256", date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    with zipfile.ZipFile(zip_path, "a") as z:
+        z.writestr(info, inner.read_bytes())
 
     outer = ROOT / "dist" / "SHA256SUMS"
-    outer.write_text(
-        f"{hashlib.sha256(zip_path.read_bytes()).hexdigest()}  {zip_path.name}\n",
-        encoding="ascii")
+    with open(outer, "w", encoding="ascii", newline="\n") as fh:
+        fh.write(f"{hashlib.sha256(zip_path.read_bytes()).hexdigest()}  "
+                 f"{zip_path.name}\n")
     return inner, len(lines)
 
 
@@ -197,8 +229,11 @@ if __name__ == "__main__":
     if bad:
         raise SystemExit(1)
     report(zpath)
-    # The bundle's digest goes into SHA256SUMS alongside the zip's.
+    # The bundle's digest goes into SHA256SUMS alongside the zip's, with the
+    # SAME newline choice (`\n`) so a reviewer's `sha256sum -c` works.
     bpath = bundle()
-    with open(ROOT / "dist" / "SHA256SUMS", "a", encoding="ascii") as fh:
-        fh.write(f"{hashlib.sha256(bpath.read_bytes()).hexdigest()}  {bpath.name}\n")
+    with open(ROOT / "dist" / "SHA256SUMS", "a", encoding="ascii",
+              newline="\n") as fh:
+        fh.write(f"{hashlib.sha256(bpath.read_bytes()).hexdigest()}  "
+                 f"{bpath.name}\n")
     report(bpath)
