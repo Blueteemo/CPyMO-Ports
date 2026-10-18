@@ -32,12 +32,15 @@ EXCLUDE_DIRS = {
 EXCLUDE_PREFIX = ("build_arm_", "build-stage-", "build-garlicos", "build/")
 TEXT_NAME = "SHA256SUMS"
 KEEP_ORIGINAL = "SHA256SUMS_v021R1_handoff.txt"
-# Files not under git yet (dist/ is tracked only via SHA256SUMS) but worth
-# listing explicitly.
-EXTRA_FILES = (
-    "SHA256SUMS_v021R1_handoff.txt",
-    "dist/CPyMO_v022_review.zip",
-    "dist/CPyMO_v022_history.bundle",
+# Files not under git (dist/*.zip and dist/*.bundle are gitignored) but worth
+# listing explicitly, so a reviewer can check a downloaded package against the
+# tree. EVERY round's package is listed, including the previous one, so the
+# digest of whichever artefact the reviewer has is in the file.
+EXTRA_FILES = tuple(
+    ["SHA256SUMS_v021R1_handoff.txt"]
+    + [f"dist/{name}" for name in (
+        "CPyMO_v022_review.zip", "CPyMO_v022_history.bundle",
+        "CPyMO_v023_review.zip", "CPyMO_v023_history.bundle")]
 )
 
 
