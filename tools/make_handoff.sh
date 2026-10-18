@@ -62,4 +62,9 @@ PY
 rm -rf "$TMP"
 
 echo
+echo "NOTE: the ZIP is a fixed point of the file tree -- it carries no git"
+echo "      metadata -- so its digest survives a later commit. The BUNDLE"
+echo "      embeds the branch tip and HEAD, so its digest is tied to the"
+echo "      commit it was built from; commit these two lines together with"
+echo "      the sources. A LATER commit changes the bundle digest."
 echo "READY: send dist/$(ls -1 dist | grep -E '_review\.zip$' | sort | tail -1)"
