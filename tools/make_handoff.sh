@@ -22,31 +22,40 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 export LC_ALL=C
 
-echo "[1/9] a first package, to learn the file set (counts only)"
+# The chicken-and-egg here is real but shallow. The README states three
+# counts, and two of them are properties of the package's FILE SET:
+#
+#   * the zip's entry count and MANIFEST coverage  -> the packaged file set
+#   * the root manifest's LINE count               -> `git ls-files`
+#
+# None of the three depends on the README's own BYTES, so the counts can be
+# settled exactly: package once so dist/ exists, bring the root manifest up to
+# date (its line count is final once the file set is), write the README, then
+# package the final archive from the same file set. A final --check proves it
+# converged instead of asserting it.
+echo "[1/9] a bootstrap package (so dist/ exists and the file set is known)"
 python3 tools/make_return_package.py | tail -2
 
-echo "[2/9] make the README's counts match that file set"
-python3 tools/sync_readme_counts.py | tail -2
-
-# The README is INSIDE the zip, so editing it invalidates the first package.
-# The file set does not change, so the counts the README now states stay
-# correct and the rebuild is the final answer.
-echo "[3/9] the final package (its digests feed the tree manifest)"
-python3 tools/make_return_package.py | tail -4
-
-echo "[4/9] the tree manifest (it hashes the zip, so it runs AFTER)"
+echo "[2/9] the tree manifest, up to date for that file set"
 python3 tools/make_tree_manifest.py | tail -1
 
-echo "[5/9] in-zip manifest, read back from the archive"
+echo "[3/9] sync the README's three counts to the final numbers"
+python3 tools/sync_readme_counts.py | tail -1
+
+echo "[4/9] the final package (same file set; counts still hold)"
+python3 tools/make_return_package.py | tail -4
+
+echo "[5/9] the tree manifest again (the zip digest it records changed)"
+python3 tools/make_tree_manifest.py | tail -1
+
+echo "[6/9] in-zip manifest, read back from the archive"
 python3 tools/verify_package.py | tail -2
 
-echo "[6/9] zip vs working tree (freshness + manifest line endings)"
+echo "[7/9] zip vs the whole tree"
 python3 tools/check_package_freshness.py | tail -2
-
-echo "[7/9] does the tree manifest cover the whole tree?"
 python3 tests/test_manifest_coverage.py | tail -1
 
-echo "[8/9] README counts, the bundle's source"
+echo "[8/9] the README converged? the bundle carries the source?"
 python3 tools/sync_readme_counts.py --check | tail -1
 python3 tests/test_readme_claims.py | tail -1
 python3 tests/test_bundle_covers_source.py | tail -1
