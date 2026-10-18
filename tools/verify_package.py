@@ -24,6 +24,20 @@ from pathlib import Path
 
 
 def verify(zip_path: Path) -> int:
+    # A corrupt archive must be a clean FAIL, not a traceback: a reviewer who
+    # truncates the download should be told which file is bad.
+    try:
+        return _verify(zip_path)
+    except zipfile.BadZipFile as exc:
+        print(f"FAIL: {zip_path.name} is not a readable zip: {exc}",
+              file=sys.stderr)
+        return 1
+    except (OSError, EOFError) as exc:
+        print(f"FAIL: {zip_path.name} could not be read: {exc}", file=sys.stderr)
+        return 1
+
+
+def _verify(zip_path: Path) -> int:
     with zipfile.ZipFile(zip_path) as z:
         names = set(z.namelist())
         if "MANIFEST.sha256" not in names:
@@ -40,8 +54,22 @@ def verify(zip_path: Path) -> int:
 
         ok = bad = 0
         for rel, want in sorted(declared.items()):
-            got = hashlib.sha256(z.read(rel)).hexdigest()
-            if got == want:
+            try:
+                # Force the bytes to be READ and, at the same time, let
+                # zipfile check the member's own CRC. A damaged member makes
+                # this raise (BadZipFile / KeyError), which is a mismatch just
+                # as much as a wrong digest is.
+                got = hashlib.sha256(z.read(rel)).hexdigest()
+                # Belt and braces: `read` already verifies the member CRC, and
+                # a decompression that "succeeded" with the wrong bytes would
+                # still be caught by the manifest digest below.
+                crc_ok = True
+            except (zipfile.BadZipFile, KeyError, EOFError, OSError) as exc:
+                bad += 1
+                print(f"FAIL: {rel} is unreadable/corrupt ({exc})",
+                      file=sys.stderr)
+                continue
+            if got == want and crc_ok:
                 ok += 1
             else:
                 bad += 1
@@ -64,10 +92,22 @@ def verify(zip_path: Path) -> int:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
+    if len(argv) > 2:
+        print("usage: verify_package.py [dist/CPyMO_<version>_review.zip]",
+              file=sys.stderr)
         return 2
-    p = Path(argv[1])
+    if len(argv) == 2:
+        p = Path(argv[1])
+    else:
+        # No argument: check the newest review package in the tree, so the
+        # command does not have to be edited every round.
+        cands = sorted((Path(__file__).resolve().parents[1] / "dist").glob(
+            "*_review.zip"), key=lambda q: q.stat().st_mtime)
+        if not cands:
+            print("no dist/*_review.zip to check", file=sys.stderr)
+            return 2
+        p = cands[-1]
+        print(f"checking the newest package: {p}")
     if not p.is_file():
         print(f"FAIL: no such file {p}", file=sys.stderr)
         return 2

@@ -263,6 +263,12 @@ int main(int argc, char **argv)
             run();
             if (frames > 2 && fixture_visible()) break;
         }
+        /* The core logs one CPYMO_PERF line per 180 `retro_run` calls. With
+         * LOADER_PERF=1 the run continues to a full interval, so a host run
+         * can be fed to the same parsers the device log uses. */
+        if (getenv("LOADER_PERF")) {
+            while (frames < 200 && !shutdown_requested) run();
+        }
 
         unsigned r, g, b, tr, tg, tb;
         unsigned long painted;

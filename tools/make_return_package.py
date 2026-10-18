@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Build the two return packages.
 
-1. small review zip (README_FOR_REVIEWER.md, reports, patches, both candidate
-   APPS trees, both ARM cores) -- this is what goes to the reviewer.
+1. the review zip (README_FOR_REVIEWER.md, reports, patches, the candidate
+   APPS trees, every ARM core, the new v0.23 launcher and its tests) -- this
+   is what goes to the reviewer.
 2. git bundle (full history) so a Linux/WSL user can clone and re-run
    everything exactly, including the SDK-based cross build.
 
-Both are written to the checkout root. Sizes and sha256 are printed.
+Both are written to dist/. Sizes and sha256 are printed.
+
+The package carries a VERSION, because the artefact a reviewer opens should say
+which round it is; `PACKAGE_VERSION` below is the single place that changes.
 """
 from __future__ import annotations
 
@@ -19,6 +23,7 @@ from pathlib import Path
 
 # tools/ lives directly under the checkout root.
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = "v023"
 (ROOT / "dist").mkdir(exist_ok=True)
 
 INCLUDE_DIRS = [
@@ -27,6 +32,7 @@ INCLUDE_DIRS = [
     "research/tools",
     "research/candidate_v022_soft",
     "research/candidate_v022_softfp",
+    "research/candidate_v023_soft",
     "research/experimental",
     "research/logs",
     "research/baseline_frames",
@@ -47,7 +53,8 @@ INCLUDE_FILES = [
 ]
 EXCLUDE_SUFFIX = (".dis", ".byfunc")          # multi-MB raw dumps; kept in git
 EXCLUDE_PREFIX = ("research/local-sdk/", "research/local-output/",
-                  "research/bench/", "build_arm_")
+                  "research/bench/", "build_arm_", "build-game-loader/",
+                  "build-garlic-paths/")
 INCLUDE_TOP = 400 * 1024 * 1024   # a sanity cap, not a real limit
 
 
@@ -62,7 +69,9 @@ def wanted(rel: str) -> bool:
 
 
 def review_zip() -> tuple[Path, list[str]]:
-    out = ROOT / "dist" / "CPyMO_v022_review.zip"
+    # A NEW file per round, so a reviewer who already has the previous package
+    # can keep both and diff them; the version is in the name.
+    out = ROOT / "dist" / f"CPyMO_{VERSION}_review.zip"
     written: list[str] = []
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for f in INCLUDE_FILES:
@@ -154,7 +163,7 @@ def git_exe() -> str:
 
 
 def bundle() -> Path:
-    out = ROOT / "dist" / "CPyMO_v022_history.bundle"
+    out = ROOT / "dist" / f"CPyMO_{VERSION}_history.bundle"
     if out.exists():
         out.unlink()
     git = git_exe()

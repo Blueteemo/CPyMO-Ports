@@ -54,10 +54,24 @@ static bool                           garlic_engine_ready = false;
 static bool                           garlic_game_loaded = false;
 /* Low-overhead real-hardware profiling. Log each 180 retro_run calls:
  * actual wall time and separately the engine update, draw and RGB565 copy.
- * This deliberately does not mistake RetroArch monitor Hz for CPyMO FPS. */
+ * This deliberately does not mistake RetroArch monitor Hz for CPyMO FPS.
+ *
+ * The 10.19 device log showed that draw+update+convert accounted for only
+ * 28.7% of the measured interval, so the report ALSO carries `outside_us`,
+ * i.e. the wall time in the interval that no CPyMO stage accounted for
+ * (RetroArch video/audio, audio_batch, the libretro call overhead and the
+ * microsecond-clock boundaries). That is the remaining long-frame budget the
+ * v0.23 task asks about, and it is reported, not guessed at. */
 static unsigned garlic_prof_frames = 0, garlic_prof_draws = 0;
 static uint64_t garlic_prof_wall_base = 0, garlic_prof_update_us = 0;
 static uint64_t garlic_prof_draw_us = 0, garlic_prof_convert_us = 0;
+static uint64_t garlic_prof_video_us = 0, garlic_prof_audio_us = 0;
+/* Start of the current game load, and the one-shot stage report that uses it
+ * (defined next to retro_run; declared here so retro_load_game can call it). */
+static uint64_t garlic_load_begin = 0;
+static void garlic_load_report(const char *gamedir, error_t err,
+                             uint64_t engine_us, uint64_t font_us,
+                             uint64_t alloc_us);
 static uint64_t garlic_micros(void)
 {
     struct timeval t;
@@ -68,22 +82,31 @@ static void garlic_prof_reset(void)
 {
     garlic_prof_frames = garlic_prof_draws = 0;
     garlic_prof_update_us = garlic_prof_draw_us = garlic_prof_convert_us = 0;
+    garlic_prof_video_us = garlic_prof_audio_us = 0;
     garlic_prof_wall_base = garlic_micros();
 }
 static void garlic_prof_report(void)
 {
     if (garlic_prof_frames == 0) return;
     uint64_t wall = garlic_micros() - garlic_prof_wall_base;
+    uint64_t accounted = garlic_prof_update_us + garlic_prof_draw_us
+                      + garlic_prof_convert_us + garlic_prof_video_us
+                      + garlic_prof_audio_us;
+    uint64_t outside = wall > accounted ? wall - accounted : 0;
     log_cb(RETRO_LOG_INFO,
            "CPYMO_PERF v0.21 frames=%u draws=%u elapsed_ms=%llu "
            "fps_x10=%llu update_us_avg=%llu draw_us_avg=%llu "
-           "convert_us_avg=%llu\n",
+           "convert_us_avg=%llu outside_us_avg=%llu video_us_avg=%llu "
+           "audio_us_avg=%llu\n",
            garlic_prof_frames, garlic_prof_draws,
            (unsigned long long)(wall / 1000),
            (unsigned long long)(wall ? 10000000ULL * garlic_prof_frames / wall : 0),
            (unsigned long long)(garlic_prof_update_us / garlic_prof_frames),
            (unsigned long long)(garlic_prof_draws ? garlic_prof_draw_us / garlic_prof_draws : 0),
-           (unsigned long long)(garlic_prof_draws ? garlic_prof_convert_us / garlic_prof_draws : 0));
+           (unsigned long long)(garlic_prof_draws ? garlic_prof_convert_us / garlic_prof_draws : 0),
+           (unsigned long long)(outside / garlic_prof_frames),
+           (unsigned long long)(garlic_prof_video_us / garlic_prof_frames),
+           (unsigned long long)(garlic_prof_audio_us / garlic_prof_frames));
     garlic_prof_reset();
 }
 
@@ -513,15 +536,24 @@ bool retro_load_game(const struct retro_game_info *game)
                    "save directory is not writable: %s\n", strerror(errno));
     }
 
+    uint64_t tick_engine, tick_font, tick_alloc;
+    garlic_load_begin = garlic_micros();
+
+    tick_engine = garlic_load_begin;
     err = cpymo_engine_init(&engine, gamedir);
+    tick_font = garlic_micros();
     if (err != CPYMO_ERR_SUCC) {
         log_cb(RETRO_LOG_ERROR, "cpymo_engine_init: %s\n", cpymo_error_message(err));
+        garlic_load_report(gamedir, err, tick_font - tick_engine, 0, 0);
         goto fail;
     }
     garlic_engine_ready = true;
     err = cpymo_backend_font_init(gamedir);
+    tick_alloc = garlic_micros();
     if (err != CPYMO_ERR_SUCC) {
         log_cb(RETRO_LOG_ERROR, "cpymo_backend_font_init: %s\n", cpymo_error_message(err));
+        garlic_load_report(gamedir, err, tick_font - tick_engine,
+                         tick_alloc - tick_font, 0);
         goto fail;
     }
 
@@ -555,6 +587,9 @@ bool retro_load_game(const struct retro_game_info *game)
     garlic_first_frame = true;
     garlic_game_loaded = true;
     garlic_prof_reset();
+    garlic_load_report(gamedir, CPYMO_ERR_SUCC, tick_font - tick_engine,
+                      tick_alloc - tick_font,
+                      garlic_micros() - tick_alloc);
     return true;
 
 fail:
@@ -574,6 +609,28 @@ void retro_deinit(void)
 
 void retro_reset(void)
 {
+}
+
+/* One-shot, load-time report. The 10.19 device log had one redraw costing
+ * 235 ms at the opening and 259 ms on a background switch, against ~73 ms in
+ * the steady menu, and none of the ordinary counters could say WHERE inside
+ * the load that went. This prints the stage boundaries of the game that was
+ * just loaded, once, so a slow asset becomes visible instead of inferred. */
+static void garlic_load_report(const char *gamedir, error_t err,
+                            uint64_t engine_us, uint64_t font_us,
+                            uint64_t alloc_us)
+{
+    uint64_t total = garlic_load_begin ? garlic_micros() - garlic_load_begin : 0;
+    log_cb(RETRO_LOG_INFO,
+           "CPYMO_LOAD gamedir=%s ok=%d total_us=%llu engine_us=%llu "
+           "font_us=%llu alloc_us=%llu canvas=%ux%u\n",
+           gamedir, err == CPYMO_ERR_SUCC ? 1 : 0,
+           (unsigned long long)total,
+           (unsigned long long)engine_us,
+           (unsigned long long)font_us,
+           (unsigned long long)alloc_us,
+           (unsigned)engine.gameconfig.imagesize_w,
+           (unsigned)engine.gameconfig.imagesize_h);
 }
 
 static void input_update(void)
@@ -645,11 +702,16 @@ void retro_run(void)
     }
     garlic_prof_frames++;
     if (garlic_prof_frames >= 180) garlic_prof_report();
+
+    tick = garlic_micros();
     video_cb(garlic_rgb565_frame, GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT, GARLIC_OUTPUT_WIDTH * 2);
+    garlic_prof_video_us += garlic_micros() - tick;
 
     if (audio_enabled && !use_audio_callback) {
+        tick = garlic_micros();
         cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
         audio_batch_cb(audio_buffer, samples);
+        garlic_prof_audio_us += garlic_micros() - tick;
     }
 }
 
