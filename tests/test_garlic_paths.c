@@ -135,37 +135,101 @@ int main(void)
         garlic_game_id("/mnt/mmc/Roms/CPyMO/Yume", a, sizeof(a));
         garlic_game_id("/mnt/mmc/Roms/CPyMO/Yume/gameconfig.txt", b, sizeof(b));
         CHECK(strcmp(a, b) == 0, "dir and its gameconfig.txt agree (%s)", a);
-        CHECK(strcmp(a, "Yume") == 0, "identifier is the basename (%s)", a);
+        CHECK(strncmp(a, "Yume-", 5) == 0,
+              "a readable prefix survives (%s)", a);
+        CHECK(strlen(a) == 5 + 16,
+              "and the suffix is exactly 16 hex digits (%s)", a);
 
+        /* The prefix exists for humans; it is lossy on purpose and must never
+         * be what tells two games apart. */
         garlic_game_id("/mnt/mmc/Roms/CPyMO/yume", a, sizeof(a));
-        CHECK(strcmp(a, "yume") == 0, "case is PRESERVED, not folded (%s)", a);
+        CHECK(strncmp(a, "yume-", 5) == 0, "case is PRESERVED (%s)", a);
 
         garlic_game_id("/mnt/mmc/Roms/My Game v1.2!", a, sizeof(a));
-        CHECK(strcmp(a, "My_Game_v1.2_") == 0, "odd characters sanitised (%s)", a);
+        CHECK(strncmp(a, "My_Game_v1.2_-", 14) == 0,
+              "odd characters sanitised in the prefix (%s)", a);
 
         garlic_game_id("/", a, sizeof(a));
-        CHECK(strcmp(a, "game") == 0, "root falls back to a usable id (%s)", a);
+        CHECK(strncmp(a, "game-", 5) == 0,
+              "root falls back to a usable prefix (%s)", a);
+    }
+
+    printf("== game identity: the collisions this used to have\n");
+    {
+        char a[GARLIC_GAME_ID_MAX], b[GARLIC_GAME_ID_MAX];
+        char c[GARLIC_GAME_ID_MAX], d[GARLIC_GAME_ID_MAX];
+
+        /* Every one of these sanitises to "game"; a basename-only identifier
+         * gave four different visual novels ONE save directory. Measured on the
+         * original v0.23: all four printed "/saveroot/game/config.csav". */
+        CHECK(garlic_game_id("/games/水仙", a, sizeof(a))
+              && garlic_game_id("/games/梦药", b, sizeof(b))
+              && garlic_game_id("/games/秋忆", c, sizeof(c))
+              && garlic_game_id("/games/梦见之药", d, sizeof(d))
+              && strcmp(a, b) && strcmp(a, c) && strcmp(a, d) && strcmp(b, c)
+              && strcmp(b, d) && strcmp(c, d),
+              "four Chinese names get four different ids (%s / %s)", a, b);
+
+        /* Same basename, different parent: also used to collide. */
+        CHECK(garlic_game_id("/games/A/Story", a, sizeof(a))
+              && garlic_game_id("/games/B/Story", b, sizeof(b))
+              && strcmp(a, b) != 0,
+              "same basename under different roots stays separate");
+
+        /* A directory and that same directory named through gameconfig.txt
+         * must still agree -- the id is a property of the directory. */
+        CHECK(garlic_game_id("/games/水仙", a, sizeof(a))
+              && garlic_game_id("/games/水仙/gameconfig.txt", b, sizeof(b))
+              && strcmp(a, b) == 0,
+              "a Chinese dir and its gameconfig.txt still agree");
+
+        /* A trailing slash is the same directory. */
+        CHECK(garlic_game_id("/games/水仙", a, sizeof(a))
+              && garlic_game_id("/games/水仙/", b, sizeof(b))
+              && strcmp(a, b) == 0,
+              "a trailing slash does not change the id");
     }
 
     printf("== save paths\n");
     {
         char out[GARLIC_PATH_MAX];
+        char id[GARLIC_GAME_ID_MAX];
+        garlic_game_id("/g/Yume", id, sizeof(id));
         CHECK(garlic_save_path(out, sizeof(out), "/g/Yume", NULL, "save-00.csav")
               && strcmp(out, "/g/Yume/save/save-00.csav") == 0,
               "no save root -> the historical in-game layout (%s)", out);
         CHECK(garlic_save_path(out, sizeof(out), "/g/Yume", "/data", "global.csav")
-              && strcmp(out, "/data/Yume/global.csav") == 0,
+              && strncmp(out, "/data/Yume-", 11) == 0
+              && strcmp(out + strlen(out) - strlen("/global.csav"),
+                        "/global.csav") == 0,
               "save root -> isolated by game id (%s)", out);
         CHECK(garlic_save_path(out, sizeof(out), "/g/yume", "/data", "global.csav")
-              && strcmp(out, "/data/yume/global.csav") == 0,
+              && strncmp(out, "/data/yume-", 11) == 0,
               "a case-only sibling gets its OWN directory (%s)", out);
         CHECK(garlic_save_path(out, sizeof(out), "/g/Yume", "/data", "sub/slot.csav")
               == false, "a name with a slash is rejected");
+        CHECK(garlic_save_path(out, sizeof(out), "/g/Yume", "/data", "..") == false,
+              "the parent-directory pseudo-slot is rejected");
+        CHECK(garlic_save_path(out, sizeof(out), "/g/Yume", "/data", ".") == false,
+              "the current-directory pseudo-slot is rejected");
+        CHECK(garlic_save_path(out, sizeof(out), "/g/Yume", "/data", "") == false,
+              "an empty slot name is rejected");
+        CHECK(garlic_save_path(out, sizeof(out), "/g/Yume", "/data", "evil\\name")
+              == false, "a backslash is rejected");
         {
             char p1[GARLIC_PATH_MAX], p2[GARLIC_PATH_MAX];
             garlic_save_path(p1, sizeof(p1), "/g/Yume", "/data", "save-01.csav");
             garlic_save_path(p2, sizeof(p2), "/g/Narcissus", "/data", "save-01.csav");
             CHECK(strcmp(p1, p2) != 0, "different games, same slot -> different files");
+        }
+        {
+            /* The bug this fixes, in one assertion: two Chinese games resolved
+             * to the same file before the path hash existed. */
+            char p1[GARLIC_PATH_MAX], p2[GARLIC_PATH_MAX];
+            garlic_save_path(p1, sizeof(p1), "/games/水仙", "/saveroot", "config.csav");
+            garlic_save_path(p2, sizeof(p2), "/games/梦药", "/saveroot", "config.csav");
+            CHECK(strcmp(p1, p2) != 0,
+                  "two Chinese games do NOT share a save file (%s | %s)", p1, p2);
         }
     }
 
@@ -186,8 +250,11 @@ int main(void)
          * compiler cannot warn about truncation in the assertion itself. */
         {
             char expect[PATHBUF];
+            char id[GARLIC_GAME_ID_MAX];
+            garlic_game_id("/g/Yume", id, sizeof(id));
             snprintf(expect, sizeof(expect), "%s", sroot);
-            appended(expect, sizeof(expect), "/Yume");
+            appended(expect, sizeof(expect), "/");
+            appended(expect, sizeof(expect), id);
             CHECK(stat(expect, &st) == 0 && S_ISDIR(st.st_mode),
                   "isolated directory exists (%s)", expect);
         }

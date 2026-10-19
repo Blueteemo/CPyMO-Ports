@@ -30,9 +30,18 @@ def check(cond: bool, msg: str) -> None:
         failures += 1
 
 
-# --- 1. the real 10.19 v0.22 device log -------------------------------
-text = (ROOT / "10.19开发任务/CPyMO_RG35XX_uClibc_Test.log").read_text(
-    encoding="utf-8", errors="replace")
+# --- 1. the real v0.22 device log (19 Oct) ----------------------------
+# Read the copy that lives IN the repository, not the user's task folder: the
+# task folder is a private path, it was not in the return package at one point,
+# and a test whose input may be absent is a test that SKIPs or fails for the
+# wrong reason. `research/logs/real_rg35xx_v022.log` is the same bytes
+# (sha256 8fcb66d6...); the old location is still accepted as a fallback so a
+# checkout that predates the copy keeps working.
+LOG = ROOT / "research/logs/real_rg35xx_v022.log"
+if not LOG.is_file():
+    LOG = ROOT / "10.19开发任务/CPyMO_RG35XX_uClibc_Test.log"
+text = LOG.read_text(encoding="utf-8", errors="replace")
+print(f"  (log: {LOG.relative_to(ROOT).as_posix()})")
 rows = m.parse_perf(text)
 check(len(rows) == 81, f"81 CPYMO_PERF records in the device log ({len(rows)})")
 s = m.summarize(rows)

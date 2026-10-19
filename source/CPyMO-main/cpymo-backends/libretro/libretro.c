@@ -159,6 +159,16 @@ static bool                            use_audio_callback = false;
 static bool                            audio_enabled = true;
 #ifndef GARLIC_NO_FFMPEG
 static mtx_t                           audio_mutex;
+/* The mutex is only initialised when the frontend accepts
+ * RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK, but cpymo_backend_audio_lock() is
+ * called by the ENGINE whenever it touches channel state -- not only from the
+ * callback. A frontend that keeps the callback (so `use_audio_callback` stays
+ * false and no mtx_init happens) would then lock an uninitialised mtx_t, which
+ * is undefined behaviour: on glibc it is a zeroed pthread_mutex_t and usually
+ * "works", on uClibc it need not. Track initialisation and lock only when there
+ * is a mutex to lock; in batch mode there is a single thread, so there is
+ * nothing to serialise anyway. */
+static bool                            audio_mutex_initialized = false;
 #endif
 
 cpymo_input cpymo_input_snapshot(void)
@@ -169,22 +179,27 @@ cpymo_input cpymo_input_snapshot(void)
 void cpymo_backend_audio_free()
 {
 #ifndef GARLIC_NO_FFMPEG
-    if (use_audio_callback)
+    if (audio_mutex_initialized) {
         mtx_destroy(&audio_mutex);
+        audio_mutex_initialized = false;
+    }
 #endif
 }
 
 void cpymo_backend_audio_lock()
 {
 #ifndef GARLIC_NO_FFMPEG
-    mtx_lock(&audio_mutex);
+    /* Symmetric with the init in retro_set_environment. Locking an
+     * uninitialised mutex is UB, and in batch mode there is no second thread
+     * to protect against. */
+    if (audio_mutex_initialized) mtx_lock(&audio_mutex);
 #endif
 }
 
 void cpymo_backend_audio_unlock()
 {
 #ifndef GARLIC_NO_FFMPEG
-    mtx_unlock(&audio_mutex);
+    if (audio_mutex_initialized) mtx_unlock(&audio_mutex);
 #endif
 }
 
@@ -349,11 +364,15 @@ static void audio_callback(void)
     static const int samples = 2048;
     static int16_t audio_buffer[2048 * 2];
 #ifndef GARLIC_NO_FFMPEG
-    mtx_lock(&audio_mutex);
+    /* This is the OTHER user of the mutex, and it is the one that runs on the
+     * frontend's audio thread. Guard it the same way as the public lock:
+     * when mtx_init did not happen (frontend refused the callback, or it
+     * failed), locking here would be UB. */
+    if (audio_mutex_initialized) mtx_lock(&audio_mutex);
 #endif
     cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
 #ifndef GARLIC_NO_FFMPEG
-    mtx_unlock(&audio_mutex);
+    if (audio_mutex_initialized) mtx_unlock(&audio_mutex);
 #endif
     audio_batch_cb(audio_buffer, samples);
 }
@@ -377,7 +396,13 @@ void retro_set_environment(retro_environment_t cb)
     if (environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK, &audio)) {
         use_audio_callback = true;
 #ifndef GARLIC_NO_FFMPEG
-        mtx_init(&audio_mutex, mtx_plain);
+        if (!audio_mutex_initialized) {
+            if (mtx_init(&audio_mutex, mtx_plain) == thrd_success)
+                audio_mutex_initialized = true;
+            else
+                log_cb(RETRO_LOG_ERROR,
+                       "audio mutex init failed; running unsynchronised\n");
+        }
 #endif
     }
 }

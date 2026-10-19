@@ -100,6 +100,31 @@ static void gp_sanitise(const char *src, char *dst, size_t cap)
     if (dst[0] == '\0' || !any_alnum) gp_strlcpy(dst, "game", cap);
 }
 
+/* FNV-1a 64 over the CANONICAL directory.
+ *
+ * Why a hash at all: the readable identifier is the last path component after
+ * `gp_sanitise`, which keeps only ASCII alphanumerics and `._-`. Every Chinese
+ * game name therefore sanitises to the same string -- 水仙, 梦药, 秋忆 and
+ * 梦见之药 all became "game" -- so `SAVE_ROOT` gave four different visual
+ * novels ONE save directory. Two games with the same basename under different
+ * roots had the same problem. The readable prefix is kept for humans; identity
+ * comes from the whole path.
+ *
+ * FNV-1a is a fast non-cryptographic hash: it makes accidental collisions
+ * negligible, it does NOT make them impossible, and it is not a defence
+ * against an attacker who chooses directory names. That is the right trade for
+ * a save directory name; claiming more would be wrong. */
+static unsigned long long gp_path_hash(const char *dir)
+{
+    unsigned long long h = 14695981039346656037ULL;
+    const unsigned char *p = (const unsigned char *)dir;
+    for (; *p; ++p) {
+        h ^= (unsigned long long)*p;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
 bool garlic_game_id(const char *path, char *out, size_t out_size)
 {
     if (!path || !out || out_size == 0) return false;
@@ -136,7 +161,22 @@ bool garlic_game_id(const char *path, char *out, size_t out_size)
     if (strcmp(tmp, ".") == 0 || strcmp(tmp, "..") == 0)
         gp_strlcpy(tmp, "game", sizeof(tmp));
 
-    return gp_strlcpy(out, tmp, out_size) < out_size;
+    /* "<readable prefix>-<16 hex of the canonical directory>". The prefix is
+     * only there so a human can tell the directories apart in a file manager;
+     * it is NEVER the identity, because gp_sanitise() is lossy. */
+    {
+        /* A trailing slash would hash differently from the same directory
+         * without one, so it is already stripped above. `dir` comes from
+         * realpath() in the loader, and the directory form is normalised the
+         * same way, so the same game always hashes to the same value. */
+        unsigned long long h = gp_path_hash(dir);
+        if (out_size < 19) return false;           /* '-' + 16 hex + NUL */
+        size_t prefix_cap = out_size - 17;         /* room for the suffix */
+        if (prefix_cap > sizeof(tmp)) prefix_cap = sizeof(tmp);
+        int n = snprintf(out, out_size, "%.*s-%016llx", (int)(prefix_cap - 1),
+                         tmp, h);
+        return n > 0 && (size_t)n < out_size;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -167,7 +207,16 @@ bool garlic_save_path(char *out, size_t out_size,
                      const char *name)
 {
     if (!out || out_size == 0 || !gamedir || !name) return false;
-    if (strchr(name, '/') != NULL) return false;   /* flat slot files only */
+    /* Flat slot files only, and no pseudo-entries: "." and ".." would make the
+     * save path leave the game's own directory, and an empty name would end the
+     * path in "/". The engine only ever passes fixed slot names today, but a
+     * general helper should not depend on that. */
+    if (name[0] == '\0') return false;
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return false;
+    if (strchr(name, '/') != NULL) return false;
+    if (strchr(name, '\\') != NULL) return false;
+    for (const unsigned char *p = (const unsigned char *)name; *p; ++p)
+        if (*p < 0x20 || *p == 0x7f) return false;
 
     char dir[GARLIC_PATH_MAX];
     if (save_root && save_root[0]) {

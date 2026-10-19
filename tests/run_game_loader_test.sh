@@ -56,11 +56,18 @@ echo "[4/4] each fixture as a DIRECTORY and as the FILE inside it"
     "ok|5,22,25|0|-|$FIX/Res320" \
     "ok|5,22,25|0|-|$FIX/Res320/gameconfig.txt" \
     "ok|25,22,5|1|-|$FIX/Res540" \
-    "ok|5,50,11|0|-|$FIX/Res800" \
-    "ok|18,15,22|0|-|$FIX/CaseUpper"
+    "ok|5,50,11|0|-|$FIX/Res800"
+  # CaseUpper requests bg/test.png and the fixture deliberately ships only
+  # BG/TEST.PNG, so whether it renders is a property of the HOST filesystem and
+  # not of the engine. On a case-SENSITIVE host that fixture is a NEGATIVE case,
+  # not a positive one; requiring it to load made this test fail on Linux/WSL
+  # while passing on Windows. The engine's real requirement -- that a wrong-case
+  # gameconfig.txt is reported as missing -- is tested just below.
   if grep -q 'CASE-SENSITIVE' "$BUILD/fixture.log"; then
+    "$BUILD/host_game_loader" "$CORE" "ok|0,0,0|0|-|$FIX/CaseUpper"
     "$BUILD/host_game_loader" "$CORE" "fail|0,0,0|-|GameConfig.TXT|$FIX/CaseConfig"
   else
+    "$BUILD/host_game_loader" "$CORE" "ok|18,15,22|0|-|$FIX/CaseUpper"
     "$BUILD/host_game_loader" "$CORE" "ok|5,22,25|0|-|$FIX/CaseConfig"
   fi
   "$BUILD/host_game_loader" "$CORE" "fail|0,0,0|-|gameconfig.txt|$FIX/NoConfig"
@@ -109,7 +116,10 @@ rm -rf "$SAVE_ROOT"
 
 # The isolated write must be under the ROOT and named for the GAME, and the
 # in-game directory must not be the place a root-configured run writes to.
-if grep -q "root/Res320/" "$BUILD/result.txt" \
+# The game id carries a path-hash suffix ("Res320-<16 hex>"), so match its
+# prefix rather than the bare basename: the suffix is exactly what keeps two
+# Chinese-named games from sharing one directory.
+if grep -qE "root/Res320-" "$BUILD/result.txt" \
    && grep -q "game/save/" "$BUILD/result.txt"; then
   echo "  ok    isolated saves land under <root>/<game_id>; unset keeps <gamedir>/save"
 else

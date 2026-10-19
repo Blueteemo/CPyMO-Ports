@@ -22,43 +22,61 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 export LC_ALL=C
 
-# The chicken-and-egg here is real but shallow. The README states three
-# counts, and two of them are properties of the package's FILE SET:
+# Ordering.
 #
-#   * the zip's entry count and MANIFEST coverage  -> the packaged file set
-#   * the root manifest's LINE count               -> `git ls-files`
+# `SHA256SUMS` is packaged now (it is a pure manifest of the SOURCE TREE --
+# `make_tree_manifest.py` no longer lists `dist/`, so it no longer contains the
+# package's own digest), which makes the cycle short but still a cycle:
 #
-# None of the three depends on the README's own BYTES, so the counts can be
-# settled exactly: package once so dist/ exists, bring the root manifest up to
-# date (its line count is final once the file set is), write the README, then
-# package the final archive from the same file set. A final --check proves it
-# converged instead of asserting it.
-echo "[1/9] a bootstrap package (so dist/ exists and the file set is known)"
+#   README's counts  <- the packaged file set and the manifest's line count
+#   SHA256SUMS       <- the README's digest
+#   the package      <- SHA256SUMS
+#
+# It converges in two rounds because nothing here depends on the README's own
+# BYTES except through a digest, and the counts are stable once the file set is.
+# A loop that runs until `--check` passes proves convergence instead of
+# assuming the count of rounds.
+echo "[1/9] bootstrap: package + README counts"
 python3 tools/make_return_package.py | tail -2
-
-echo "[2/9] the tree manifest, up to date for that file set"
-python3 tools/make_tree_manifest.py | tail -1
-
-echo "[3/9] sync the README's three counts to the final numbers"
 python3 tools/sync_readme_counts.py | tail -1
 
-echo "[4/9] the final package (same file set; counts still hold)"
+for round in 1 2 3 4; do
+  echo "[2/9] round $round: tree manifest -> package -> README counts"
+  python3 tools/make_tree_manifest.py | tail -1
+  python3 tools/make_return_package.py | tail -2
+  python3 tools/sync_readme_counts.py | tail -1
+  if python3 tools/sync_readme_counts.py --check >/dev/null 2>&1; then
+    echo "        converged after $round round(s)"
+    break
+  fi
+  if [ "$round" = "4" ]; then
+    echo "        FAILED to converge after 4 rounds" >&2
+    exit 1
+  fi
+done
+
+echo "[3/9] the final package, carrying the settled manifest"
+python3 tools/make_tree_manifest.py | tail -1
 python3 tools/make_return_package.py | tail -4
 
-echo "[5/9] the tree manifest again (the zip digest it records changed)"
-python3 tools/make_tree_manifest.py | tail -1
-
-echo "[6/9] in-zip manifest, read back from the archive"
+echo "[4/9] in-zip manifest, read back from the archive"
 python3 tools/verify_package.py | tail -2
 
-echo "[7/9] zip vs the whole tree"
+echo "[5/9] zip vs the whole tree"
 python3 tools/check_package_freshness.py | tail -2
 python3 tests/test_manifest_coverage.py | tail -1
 
-echo "[8/9] the README converged? the bundle carries the source?"
+echo "[6/9] required contents, script modes"
+python3 tests/test_package_contents.py | tail -1
+python3 tests/test_zip_modes.py | tail -1
+
+echo "[7/9] the README converged? the bundle carries the source?"
 python3 tools/sync_readme_counts.py --check | tail -1
 python3 tests/test_readme_claims.py | tail -1
 python3 tests/test_bundle_covers_source.py | tail -1
+
+echo "[8/9] unzip for real, then GNU sha256sum -c inside it"
+python3 tests/test_unpacked_package.py | tail -6
 
 echo "[9/9] GNU sha256sum -c, the way a reviewer runs it"
 ( cd dist && sha256sum -c SHA256SUMS ) 2>&1 | sed 's/^/   /'

@@ -64,8 +64,7 @@ INCLUDE_FILES = [
     "research/交给本地DeepSeek的执行提示词.md",
     "research/bench_baseline.log",
     # The handoff's own (v0.21-R1) manifest, so a reviewer can diff it against
-    # the current SHA256SUMS and see exactly which lines this work changed. It is
-    # shipped in addition to the package-relative SHA256SUMS written below.
+    # the repository's SHA256SUMS and see exactly which lines this work changed.
     "SHA256SUMS_v021R1_handoff.txt",
 ]
 EXCLUDE_SUFFIX = (".dis", ".byfunc")          # multi-MB raw dumps; kept in git
@@ -85,6 +84,32 @@ def wanted(rel: str) -> bool:
     return True
 
 
+def zip_write(z: zipfile.ZipFile, path: Path, rel: str) -> None:
+    """Add one file, WITH a UNIX mode.
+
+    `ZipFile.write()` on Windows sets `create_system=0` (FAT) and leaves
+    `external_attr` at 0666, so every `*.sh` in the package arrives on Linux
+    WITHOUT an execute bit. Measured: `unzip` then run gave
+    `Permission denied` for a script that runs fine on the card. The archive is
+    shipped to Linux/WSL reviewers, so it has to say what the files are.
+
+    `create_system=3` is UNIX; the mode lives in the high half of
+    `external_attr`. Only the executable bit is imposed on top of the real
+    permission bits, so a deliberately non-executable file stays that way.
+    """
+    zinfo = zipfile.ZipInfo.from_file(path, rel)
+    # Real mode from the filesystem (Windows reports 0666/0444-ish), then 0755
+    # for anything whose NAME says it is a script.
+    mode = 0o644
+    if path.suffix in (".sh", ".py", ".bat", ".command") or \
+       path.name in ("CPyMO.sh",):
+        mode = 0o755
+    zinfo.external_attr = (0o100000 | mode) << 16
+    zinfo.create_system = 3                      # UNIX, not FAT
+    zinfo.compress_type = zipfile.ZIP_DEFLATED
+    z.writestr(zinfo, path.read_bytes())
+
+
 def review_zip() -> tuple[Path, list[str]]:
     # A NEW file per round, so a reviewer who already has the previous package
     # can keep both and diff them; the version is in the name.
@@ -94,7 +119,7 @@ def review_zip() -> tuple[Path, list[str]]:
         for f in INCLUDE_FILES:
             p = ROOT / f
             if p.is_file():
-                z.write(p, f); written.append(f)
+                zip_write(z, p, f); written.append(f)
         for d in INCLUDE_DIRS:
             base = ROOT / d
             if not base.is_dir():
@@ -105,7 +130,7 @@ def review_zip() -> tuple[Path, list[str]]:
                 rel = p.relative_to(ROOT).as_posix()
                 if not wanted(rel):
                     continue
-                z.write(p, rel); written.append(rel)
+                zip_write(z, p, rel); written.append(rel)
     return out, written
 
 

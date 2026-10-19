@@ -18,6 +18,20 @@
 
 typedef pthread_mutex_t mtx_t;
 typedef pthread_once_t once_flag;
+typedef int thrd_t;
+
+/* C11's `thrd_success` is 0 and `mtx_init` returns a `thrd_*` code, so a
+ * caller comparing the result needs the constants. They were missing from the
+ * first version of this shim, which only worked because nothing checked the
+ * return value yet; libretro.c now does (it must not lock an uninitialised
+ * mutex), so the constants have to exist here exactly as in the real header. */
+enum {
+    thrd_success = 0,
+    thrd_nomem = 1,
+    thrd_timedout = 2,
+    thrd_busy = 3,
+    thrd_error = 4
+};
 
 enum {
     mtx_plain = 0,
@@ -29,13 +43,13 @@ static inline int mtx_init(mtx_t *m, int type)
 {
     if (type == mtx_recursive) {
         pthread_mutexattr_t a;
-        if (pthread_mutexattr_init(&a) != 0) return -1;
+        if (pthread_mutexattr_init(&a) != 0) return thrd_error;
         pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
         int r = pthread_mutex_init(m, &a);
         pthread_mutexattr_destroy(&a);
-        return r;
+        return r == 0 ? thrd_success : thrd_error;
     }
-    return pthread_mutex_init(m, 0);
+    return pthread_mutex_init(m, 0) == 0 ? thrd_success : thrd_error;
 }
 
 static inline int mtx_lock(mtx_t *m) { return pthread_mutex_lock(m); }

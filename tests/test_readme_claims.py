@@ -125,13 +125,23 @@ def main(argv: list[str]) -> int:
               f"(zip entries={entries}, covered={covered}, "
               f"root manifest={root_lines})")
 
-    # The README's ORDER of the README: it claims dist/SHA256SUMS is the
-    # authority, which is only true because the HANDOFF script writes the
-    # package before the tree manifest. Check the script says the same.
+    # The README's ORDER claim. What must hold is no longer "package before
+    # manifest" -- that was true when the tree manifest recorded the package's
+    # own digest, which is exactly why it could not be packaged. Now:
+    #   * the packager includes SHA256SUMS, so the manifest travels with it;
+    #   * the tree manifest does NOT list dist/, or the cycle would return;
+    #   * make_handoff.sh CONVERGES, proven with sync_readme_counts --check.
     handoff = (ROOT / "tools" / "make_handoff.sh").read_text(encoding="utf-8")
-    check(handoff.index("make_return_package.py")
-          < handoff.index("make_tree_manifest.py"),
-          "make_handoff.sh packages BEFORE it writes the tree manifest")
+    check("sync_readme_counts.py --check" in handoff,
+          "make_handoff.sh proves the README converged (--check in a loop)")
+    packer_src = (ROOT / "tools" / "make_return_package.py").read_text(
+        encoding="utf-8")
+    check('"SHA256SUMS",' in packer_src,
+          "the packager ships SHA256SUMS (the file the README points at)")
+    manifest_src = (ROOT / "tools" / "make_tree_manifest.py").read_text(
+        encoding="utf-8")
+    check('f"dist/{name}"' not in manifest_src,
+          "the tree manifest does not list dist/ (no self-reference)")
 
     # The size claims in the artefact table. They move whenever the packaged
     # file set moves (adding the 19 Oct folder took the zip from 6.4 to
