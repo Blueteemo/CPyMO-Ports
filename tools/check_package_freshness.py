@@ -23,13 +23,18 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TREE_ROOTS = ("source", "research", "deploy", "docs", "tests", "target", "tools")
+# Keep in step with tools/make_return_package.py's INCLUDE_DIRS. The 19 Oct
+# folder belongs here: it holds the TASK DOC and the baseline device log, and
+# `*.log` is gitignored, so a "did you package the log?" question could not
+# be answered by the manifest at all.
+TREE_ROOTS = ("source", "research", "deploy", "docs", "tests", "target",
+              "tools", "10.19开发任务")
 
 
 def wanted(rel: str) -> bool:
     if not rel.startswith(TREE_ROOTS):
         return False
-    # Keep in step with tools/make_return_package.py's exclusions.
+    # EXCLUDE_PREFIX in the packager, verbatim.
     if any(rel.startswith(p) for p in (
             "research/local-sdk/", "research/local-output/", "research/bench/",
             "build_arm_", "build-game-loader/", "build-garlic-paths/",

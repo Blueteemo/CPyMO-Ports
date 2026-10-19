@@ -22,15 +22,19 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README_FOR_REVIEWER.md"
 
 
-def actual(version: str = "v023") -> dict[str, int]:
-    zpath = ROOT / "dist" / f"CPyMO_{version}_review.zip"
-    with zipfile.ZipFile(zpath) as z:
+def actual(version: str = "v023") -> dict[str, float]:
+    zp = ROOT / "dist" / f"CPyMO_{version}_review.zip"
+    bp = ROOT / "dist" / f"CPyMO_{version}_history.bundle"
+    with zipfile.ZipFile(zp) as z:
         names = z.namelist()
         entries = len(names)
         covered = len(z.read("MANIFEST.sha256").decode("utf-8").splitlines())
-    root = len((ROOT / "SHA256SUMS").read_text(
-        encoding="utf-8").splitlines()) if (ROOT / "SHA256SUMS").is_file() else 0
-    return {"entries": entries, "covered": covered, "root": root}
+    rootf = ROOT / "SHA256SUMS"
+    root = (len(rootf.read_text(encoding="utf-8").splitlines())
+            if rootf.is_file() else 0)
+    return {"entries": entries, "covered": covered, "root": root,
+            "zip_mb": round(zp.stat().st_size / 1e6, 1),
+            "bundle_mb": round(bp.stat().st_size / 1e6, 1)}
 
 
 def main(argv: list[str]) -> int:
@@ -51,6 +55,13 @@ def main(argv: list[str]) -> int:
         (r"sha256sum -c MANIFEST\.sha256 \)\s*->\s*\d+ entries",
          f"sha256sum -c MANIFEST.sha256 ) ->  "
          f"{want['covered']} entries"),
+        # The size, to a tenth of a MB, is a claim about the artefact too;
+        # it went stale the moment the 19 Oct folder was added to the package.
+        (r"\| `CPyMO_v023_review\.zip` \| ~[\d.]+ MB \|",
+         f"| `CPyMO_v023_review.zip` | ~{want['zip_mb']} MB |"),
+        (r"\| `CPyMO_v023_history\.bundle` \| ~[\d.]+ MB \|",
+         f"| `CPyMO_v023_history.bundle` | "
+         f"~{want['bundle_mb']} MB |"),
     ]
     used = 0
     for pat, rep in subs:

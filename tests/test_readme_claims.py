@@ -133,12 +133,21 @@ def main(argv: list[str]) -> int:
           < handoff.index("make_tree_manifest.py"),
           "make_handoff.sh packages BEFORE it writes the tree manifest")
 
-    claimed = re.search(r"~\s*([\d.]+)\s*MB[^\n]*review", text) or \
-        re.search(r"review\.zip[^\n]*~\s*([\d.]+)\s*MB", text)
-    if claimed:
-        want = float(claimed.group(1))
-        check(abs(want - zip_mb) < 0.05,
-              f"README's size for the zip matches ({want} vs {zip_mb:.2f} MB)")
+    # The size claims in the artefact table. They move whenever the packaged
+    # file set moves (adding the 19 Oct folder took the zip from 6.4 to
+    # 6.7 MB), and they are stated to one decimal, so they are compared to
+    # one decimal.
+    zip_mb = round(zpath.stat().st_size / 1e6, 1)
+    bundle_mb = (round(bpath.stat().st_size / 1e6, 1)
+                 if bpath.is_file() else None)
+    ms = re.search(r"`CPyMO_v023_review\.zip` \| ~([\d.]+) MB", text)
+    check(ms is not None and abs(float(ms.group(1)) - zip_mb) < 0.05,
+          f"README's zip size matches ({zip_mb} MB)")
+    if bundle_mb is not None:
+        mb = re.search(
+            r"`CPyMO_v023_history\.bundle` \| ~([\d.]+) MB", text)
+        check(mb is not None and abs(float(mb.group(1)) - bundle_mb) < 0.05,
+              f"README's bundle size matches ({bundle_mb} MB)")
 
     print()
     print(f"{'FAIL' if failures else 'PASS'} readme-numeric-claims "

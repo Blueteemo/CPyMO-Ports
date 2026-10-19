@@ -35,9 +35,13 @@ KEEP_ORIGINAL = "SHA256SUMS_v021R1_handoff.txt"
 # Files not under git (dist/*.zip and dist/*.bundle are gitignored) but worth
 # listing explicitly, so a reviewer can check a downloaded package against the
 # tree. EVERY round's package is listed, including the previous one, so the
-# digest of whichever artefact the reviewer has is in the file.
+# digest of whichever artefact the reviewer has is in the file. The 19 Oct
+# device log is here too: `*.log` is gitignored, but the whole v0.23 result
+# set is measured against it, and a packaged file with no digest is the one
+# kind of gap `sha256sum -c` cannot report.
 EXTRA_FILES = tuple(
-    ["SHA256SUMS_v021R1_handoff.txt"]
+    ["SHA256SUMS_v021R1_handoff.txt",
+     "10.19开发任务/CPyMO_RG35XX_uClibc_Test.log"]
     + [f"dist/{name}" for name in (
         "CPyMO_v022_review.zip", "CPyMO_v022_history.bundle",
         "CPyMO_v023_review.zip", "CPyMO_v023_history.bundle")]

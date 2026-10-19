@@ -43,6 +43,12 @@ INCLUDE_DIRS = [
     # The A/B structure dumps beside the experimental cores: small, and the
     # direct evidence for compare_arm_clang_lld.sh's 19 assertions.
     "research/build_arm_compare_clang",
+    # The 19 Oct task folder. It holds the TASK DOC this whole phase answers
+    # to AND the baseline device log the numbers are measured against, and
+    # `*.log` is gitignored -- so the manifest could never show that the log
+    # was missing, and the reports told the reviewer to parse a file that was
+    # not in the package. 617 kB.
+    "10.19开发任务",
     "deploy",
     "docs",
     "tests",
