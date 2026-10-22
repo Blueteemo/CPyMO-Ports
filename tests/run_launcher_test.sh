@@ -25,6 +25,9 @@ cp "$ROOT/deploy/Roms/APPS/CPyMO.sh" "$APPS/CPyMO.sh"
 chmod +x "$APPS/CPyMO.sh"
 cp "$ROOT/deploy/Roms/APPS/CPyMO.sh" "$APPS/GameOne.sh"
 cp "$ROOT/deploy/Roms/APPS/CPyMO.sh" "$APPS/Story.sh"
+# Git bundle/Windows ZIP may preserve shell scripts as 0644. Test the script,
+# not the packager's executable-bit behavior.
+chmod +x "$APPS/GameOne.sh" "$APPS/Story.sh"
 mkdir -p "$APPS/Story" && printf 'gametitle,S\nimagesize,320,240\n' \
   > "$APPS/Story/gameconfig.txt"
 
@@ -115,6 +118,19 @@ check "the games folder is what RetroArch is given" \
       "[$APPS]" "$WORK/g0.log"
 check "the header says the games dir" "games_dir=$APPS" "$WORK/g0.log"
 check "and that the selector is starting" "launching_game_selector games_dir=$APPS" "$WORK/g0.log"
+
+echo "== 7b2. explicit games-root launches selector"
+CPYMO_LOG="$WORK/g_explicit.log" "$APPS/CPyMO.sh" "$APPS"
+check "explicit games folder selects the menu" \
+      "stage=launching_game_selector games_dir=$APPS" "$WORK/g_explicit.log"
+check "explicit root was given to core" "[$APPS]" "$WORK/g_explicit.log"
+mkdir -p "$WORK/EmptyGame"
+set +e
+CPYMO_LOG="$WORK/g_empty.log" "$APPS/CPyMO.sh" "$WORK/EmptyGame" >/dev/null 2>&1
+empty_rc=$?
+set -e
+if [ "$empty_rc" = 41 ]; then echo '  ok    empty game rejected'; else
+    echo "  FAIL  empty game exited $empty_rc (expected 41)"; failures=$((failures+1)); fi
 
 echo "== 7c. CPYMO_MENU=0 restores the refusal"
 set +e

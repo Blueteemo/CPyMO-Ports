@@ -42,8 +42,8 @@ SELF="${SELF%.sh}"
 # test game, which is the same core this project builds.
 CORE="${CPYMO_CORE:-}"
 if [ -z "$CORE" ]; then
-    for cand in "$APPDIR/cpymo_libretro.so" \
-                "$APPDIR/$SELF/cpymo_libretro.so" \
+    for cand in "$APPDIR/$SELF/cpymo_libretro.so" \
+                "$APPDIR/cpymo_libretro.so" \
                 "$APPDIR/CPyMO_RG35XX_uClibc_Test/cpymo_libretro.so"; do
         if [ -r "$cand" ]; then CORE="$cand"; break; fi
     done
@@ -52,6 +52,18 @@ fi
 # --- which game -----------------------------------------------------
 GAME="${1:-${CPYMO_GAME:-}}"
 MENU="${CPYMO_MENU:-1}"
+# A games-root explicitly supplied as an argument should open the selector;
+# it is not a malformed game merely because it lacks gameconfig.txt.
+if [ -n "$GAME" ] && [ "$MENU" != 0 ] && [ -d "$GAME" ] \
+   && [ ! -f "$GAME/gameconfig.txt" ]; then
+    for candidate in "$GAME"/*/; do
+        if [ -f "$candidate/gameconfig.txt" ]; then
+            GAMES_DIR="$(cd "$GAME" && pwd -P)"
+            GAME="$GAMES_DIR"
+            break
+        fi
+    done
+fi
 if [ -z "$GAME" ] && [ -e "$APPDIR/$SELF/gameconfig.txt" ]; then
     GAME="$APPDIR/$SELF"
 fi
@@ -99,6 +111,20 @@ esac
 GAME_ID="${GAMEDIR##*/}"
 export CPYMO_GAMES_DIR="${GAMES_DIR:-}"
 if [ -z "$CPYMO_GAMES_DIR" ]; then unset CPYMO_GAMES_DIR; fi
+
+# When the general selector is launched, prefer the versioned core's
+# packaged menu font over unrelated older tests on the TF card.
+if [ -n "${GAMES_DIR:-}" ] && [ -z "${CPYMO_MENU_FONT:-}" ] \
+   && [ ! -r "$GAMES_DIR/system/default.ttf" ]; then
+    for menu_font in "$APPDIR/$SELF/system/default.ttf" \
+                     "$APPDIR/CPyMO_RG35XX_uClibc_Test/system/default.ttf"; do
+        if [ -r "$menu_font" ]; then
+            CPYMO_MENU_FONT="$menu_font"
+            export CPYMO_MENU_FONT
+            break
+        fi
+    done
+fi
 
 RA_ROOT="${CPYMO_RETROARCH_HOME:-/mnt/mmc/CFW/retroarch}"
 RA_BIN="${CPYMO_RETROARCH_BIN:-$RA_ROOT/retroarch}"

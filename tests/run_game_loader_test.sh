@@ -64,7 +64,7 @@ echo "[4/4] each fixture as a DIRECTORY and as the FILE inside it"
   # while passing on Windows. The engine's real requirement -- that a wrong-case
   # gameconfig.txt is reported as missing -- is tested just below.
   if grep -q 'CASE-SENSITIVE' "$BUILD/fixture.log"; then
-    "$BUILD/host_game_loader" "$CORE" "ok|0,0,0|0|-|$FIX/CaseUpper"
+    "$BUILD/host_game_loader" "$CORE" "blank|0,0,0|-|-|$FIX/CaseUpper"
     "$BUILD/host_game_loader" "$CORE" "fail|0,0,0|-|GameConfig.TXT|$FIX/CaseConfig"
   else
     "$BUILD/host_game_loader" "$CORE" "ok|18,15,22|0|-|$FIX/CaseUpper"

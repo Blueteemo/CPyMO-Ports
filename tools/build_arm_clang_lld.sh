@@ -1,168 +1,114 @@
 #!/usr/bin/env bash
-# Cross-compile the CPyMO Libretro core for RG35XX / GarlicOS (ARM + uClibc).
-#
-#   bash tools/build_arm_clang_lld.sh soft
-#   bash tools/build_arm_clang_lld.sh softfp
-#   BUILD=/tmp/out bash tools/build_arm_clang_lld.sh softfp
-#
-# Why clang+lld instead of the SDK's own gcc
-# ----------------------------------------
-# The official MiyooCFW SDK for this target (Actions run 36049439393) ships a
-# LINUX-host GCC: its `toolchain-wrapper`, `cc1/cc1plus`, `ld` and `as` are all
-# x86-64 ELF. On a Windows host they cannot run, while the SDK still holds
-# everything a cross LINK needs: the uClibc sysroot (headers, crt objects,
-# `libc.so.0`, `ld-uClibc.so.1`, `uclibc_nonshared.a`) and `libgcc.a`.
-# A native-Windows clang plus `-fuse-ld=lld` consumes that sysroot directly, and
-# produces a core whose dynamic dependencies are the real firmware's names.
-#
-# Float ABI: `soft` and `softfp` here mean exactly what they mean in the
-# handoff: both stay in the soft-float CALLING convention (no `Tag_ABI_VFP_args`
-# in the ELF), and `softfp` additionally emits VFPv3 instructions. Compare with
-# research/tools/softfp_call_evidence.sh.
-#
-# FAIL-CLOSED: after linking, the output is checked with
-# tools/verify_uclibc_core.py and the ARM attributes are printed.
+# Build an original-RG35XX / GarlicOS-1.4.9 ARM/uClibc Libretro core.
+# Usage: SDK=/path/to/arm-miyoo-linux-uclibcgnueabi_sdk-buildroot \
+#          bash tools/build_arm_clang_lld.sh softfp
+# The same script supports Linux and MSYS2; a real SDK/sysroot is mandatory.
 set -euo pipefail
 
-MODE="${1:-soft}"
-case "$MODE" in
-  soft|softfp) ;;
-  *) echo "usage: $0 soft|softfp" >&2; exit 2 ;;
-esac
-
+MODE="${1:-softfp}"
+case "$MODE" in soft|softfp) ;; *) echo 'Usage: build_arm_clang_lld.sh soft|softfp' >&2; exit 2;; esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SDK="${SDK:-$ROOT/research/local-sdk/arm-miyoo-linux-uclibcgnueabi_sdk-buildroot}"
 BUILD="${BUILD:-$ROOT/build_arm_$MODE}"
-CLANG="${CLANG:-/c/tools/msys64/msys64/ucrt64/bin/clang.exe}"
-LLD="${LLD:-/c/tools/msys64/msys64/ucrt64/bin/ld.lld.exe}"
-
+CLANG="${CLANG:-clang}"
+ARM_READELF="${ARM_READELF:-readelf}"
+ARM_OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
 SYSROOT="$SDK/arm-miyoo-linux-uclibcgnueabi/sysroot"
 GCCLIB="$SDK/lib/gcc/arm-miyoo-linux-uclibcgnueabi/9.4.0"
-
-# clang is a native Windows binary: give it Windows-form paths with forward
-# slashes (the checkout path contains no characters that need quoting).
-win() { cygpath -m "$1"; }
-
-# `-mfloat-abi=softfp -mfpu=vfpv3` is the experiment under test in phase B;
-# plain `soft` is the v0.21 shipping configuration.
-case "$MODE" in
-  soft)   FPU_FLAGS=(-mfloat-abi=soft) ;;
-  softfp) FPU_FLAGS=(-mfloat-abi=softfp -mfpu=vfpv3) ;;
-esac
-
-if [ ! -d "$SYSROOT" ]; then
-  echo "ERROR: no SDK sysroot at $SYSROOT" >&2
-  echo "       run: bash research/tools/prepare_sdk.sh 'SDK (uClibc).zip' [dir]" >&2
-  exit 3
-fi
-# `tar` on Windows cannot create the SDK's symlinks; the linker needs
-# lib/ld-uClibc.so.1 in particular.
-if [ ! -e "$SYSROOT/lib/ld-uClibc.so.1" ]; then
-  echo "== repairing SDK symlinks (missing lib/ld-uClibc.so.1)"
-  python3 "$ROOT/research/tools/repair_sdk_symlinks.py" "$SDK" || true
-fi
-
 SRC="$ROOT/source/CPyMO-main"
+
+fail() { echo "BLOCKED: $*" >&2; exit 3; }
+command -v "$CLANG" >/dev/null 2>&1 || fail "missing clang: $CLANG"
+command -v "$ARM_READELF" >/dev/null 2>&1 || fail "missing readelf: $ARM_READELF"
+command -v "$ARM_OBJDUMP" >/dev/null 2>&1 || fail "missing ARM objdump: $ARM_OBJDUMP"
+command -v ld.lld >/dev/null 2>&1 || fail 'missing lld linker'
+[ -f "$SYSROOT/usr/include/stdio.h" ] || fail "real ARM/uClibc SDK sysroot not found at $SYSROOT (do not substitute host glibc)"
+for f in "$SYSROOT/usr/lib/crti.o" "$SYSROOT/usr/lib/crtn.o" "$SYSROOT/lib/libc.so.0" "$GCCLIB/libgcc.a"; do
+    [ -e "$f" ] || fail "incomplete SDK (missing $f)"
+done
+# Target check, even if the SDK folder has an arbitrary name.
+"$ARM_READELF" -h "$SYSROOT/usr/lib/crti.o" | grep -qE 'Machine:.*ARM' || fail 'wrong sysroot architecture'
+
+# Native Linux tools accept POSIX paths. MSYS2 passes Windows paths to native
+# clang.exe/ld.lld.exe, which otherwise cannot open /c/... sources/sysroots.
+native_path() {
+    if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi
+}
+case "$MODE" in
+    soft) FPU_FLAGS=(-mfloat-abi=soft) ;;
+    softfp) FPU_FLAGS=(-mfloat-abi=softfp -mfpu=vfpv3) ;;
+esac
 mkdir -p "$BUILD"
-echo "== mode            $MODE"
-echo "== compiler        $("$CLANG" --version | head -1)"
-echo "== sysroot         $SYSROOT"
-echo "== fpu flags       ${FPU_FLAGS[*]}"
-echo "== build dir       $BUILD"
+# A failed rebuild must not leave a seemingly new candidate from an old run.
+rm -f "$BUILD/cpymo_libretro.so" "$BUILD/BUILD_PROVENANCE.txt"
+FLAGS=(--target=armv7-unknown-linux-gnueabi --sysroot="$(native_path "$SYSROOT")"
+       -mcpu=cortex-a9 "${FPU_FLAGS[@]}" -O2 -DNDEBUG -fPIC -std=gnu11
+       -DTEXT_CHARACTER_W_SCALE=1 -DDISABLE_AUDIO -DDISABLE_MOVIE
+       -DGARLIC_NO_FFMPEG -Wall -Werror=implicit-function-declaration)
 
 sources() {
-  printf '%s\n' \
-    "$SRC/cpymo-backends/libretro/libretro.c" \
-    "$SRC/cpymo-backends/garlicos/garlic_adapter.c" \
-    "$SRC/cpymo-backends/garlicos/garlic_paths.c" \
-    "$SRC/cpymo-backends/software/cpymo_backend_image.c" \
-    "$SRC/cpymo-backends/software/cpymo_backend_software.c" \
-    "$SRC/cpymo-backends/software/cpymo_backend_text.c" \
-    "$SRC/cpymo-backends/software/cpymo_backend_masktrans.c"
-  ls -1 "$SRC/cpymo"/*.c
+    printf '%s\n' \
+       "$SRC/cpymo-backends/libretro/libretro.c" \
+       "$SRC/cpymo-backends/garlicos/garlic_adapter.c" \
+       "$SRC/cpymo-backends/garlicos/garlic_paths.c" \
+       "$SRC/cpymo-backends/software/cpymo_backend_image.c" \
+       "$SRC/cpymo-backends/software/cpymo_backend_software.c" \
+       "$SRC/cpymo-backends/software/cpymo_backend_text.c" \
+       "$SRC/cpymo-backends/software/cpymo_backend_masktrans.c"
+    find "$SRC/cpymo" -maxdepth 1 -name '*.c' -type f | sort
 }
 
-# Same compile definitions and link script the project's CMake target uses, so the
-# resulting core is comparable with the v0.21 device build.
-COMMON_FLAGS=(
-  --target=armv7-unknown-linux-gnueabi
-  --sysroot="$(win "$SYSROOT")"
-  -mcpu=cortex-a9
-  "${FPU_FLAGS[@]}"
-  -O2 -DNDEBUG -fPIC -std=gnu11
-  -DTEXT_CHARACTER_W_SCALE=1
-  -Wall
-)
-COMMON_FLAGS+=(-DDISABLE_AUDIO -DDISABLE_MOVIE -DGARLIC_NO_FFMPEG)
-
-# `--hash-style=both` is a HARD requirement on this firmware, not a nicety:
-# the RG35XX log records "libretro API 版本: 1, 未按照 API 编译: 1" from a core
-# with only `.gnu.hash`, and the 10.19 task document names the missing SysV
-# `.hash` table as the cause of an earlier `retro_init` lookup failure. The
-# device-tested core (sha256 ed3bb8b1…) carries BOTH tables; lld's default is
-# GNU-only, so pass it explicitly and assert the result below.
-HASH_STYLE_FLAG="-Wl,--hash-style=both"
-
+printf 'building RG35XX original: mode=%s\ncompiler=%s\nsysroot=%s\n' "$MODE" "$CLANG" "$SYSROOT"
 OBJECTS=()
-rm -f "$BUILD"/*.o
-while IFS= read -r src; do
-  obj="$BUILD/$(basename "${src%.c}").o"
-  "$CLANG" "${COMMON_FLAGS[@]}" -c "$(win "$src")" -o "$(win "$obj")"
-  OBJECTS+=("$(win "$obj")")
+i=0
+while IFS= read -r source; do
+    # Numeric prefix prevents silently overwriting same-basename objects.
+    obj="$BUILD/$(printf '%03d' "$i")_$(basename "${source%.c}").o"
+    "$CLANG" "${FLAGS[@]}" -c "$(native_path "$source")" -o "$(native_path "$obj")"
+    OBJECTS+=("$(native_path "$obj")")
+    i=$((i+1))
 done < <(sources)
+[ "$i" -gt 20 ] || fail "unexpectedly few source files: $i"
 
 OUT="$BUILD/cpymo_libretro.so"
-"$CLANG" "${COMMON_FLAGS[@]}" -shared \
-  -fuse-ld=lld \
-  -nostdlib \
-  "$HASH_STYLE_FLAG" \
-  "$(win "$SYSROOT/usr/lib/crti.o")" \
-  "${OBJECTS[@]}" \
-  "$(win "$SYSROOT/usr/lib/crtn.o")" \
-  -Wl,--version-script="$(win "$SRC/cpymo-backends/libretro/link.T")" \
-  -Wl,--no-undefined \
-  -L"$(win "$SYSROOT/usr/lib")" -L"$(win "$SYSROOT/lib")" \
-  -L"$(win "$GCCLIB")" \
-  -lc -lm -lgcc \
-  -o "$(win "$OUT")"
+"$CLANG" "${FLAGS[@]}" -shared -fuse-ld=lld -nostdlib \
+    -Wl,--hash-style=both \
+    "$(native_path "$SYSROOT/usr/lib/crti.o")" \
+    "${OBJECTS[@]}" \
+    "$(native_path "$SYSROOT/usr/lib/crtn.o")" \
+    -Wl,--version-script="$(native_path "$SRC/cpymo-backends/libretro/link.T")" \
+    -Wl,--no-undefined \
+    -L"$(native_path "$SYSROOT/usr/lib")" -L"$(native_path "$SYSROOT/lib")" \
+    -L"$(native_path "$GCCLIB")" \
+    -lc -lm -lgcc -o "$(native_path "$OUT")"
 
-echo "== linked $(wc -c < "$OUT") bytes"
-
-# --- verification -----------------------------------------------------------
-ARM_READELF="${ARM_READELF:-/c/tools/msys64/msys64/ucrt64/bin/arm-none-eabi-readelf}"
-ARM_OBJDUMP="${ARM_OBJDUMP:-/c/tools/msys64/msys64/ucrt64/bin/arm-none-eabi-objdump}"
-
-# The per-OBJECT attributes are the ones that show our codegen: the SDK's
-# `libgcc.a` members are all `Tag_CPU_arch: v5TEJ`, so a linked-object dump
-# would report v5TEJ even though every core object here says v7. Likewise the
-# softfp object must show `Tag_FP_arch: VFPv3` while NOT gaining
-# `Tag_ABI_VFP_args` (which would mean the hard-float calling convention).
-echo "== object-level codegen evidence"
-for obj in "${OBJECTS[@]}"; do
-  base="$(basename "$obj")"
-  attrs="$("$ARM_READELF" -A "$obj" | grep -E 'Tag_(CPU_name|CPU_arch|CPU_arch_profile|FP_arch|ABI_VFP_args)' \
-           | tr -s ' ' | paste -sd';' -)"
-  insns="$("$ARM_OBJDUMP" -m arm -d "$obj" | grep -cE '\bv(mul|add|div|cvt|mov|ldr|str)\.[fsd][0-9]+' || true)"
-  printf '   %-34s vfp_insns=%-6s %s\n' "$base" "$insns" "$attrs"
-done
-
-# The whole-.so dump is still worth recording: it is what the device loader and
-# the project's verifier see.
-echo "== linked object"
-"$ARM_READELF" -h "$OUT" | grep -E 'Class:|Machine:|Type:|Flags:' | sed 's/^/   /'
-"$ARM_READELF" -A "$OUT" | grep -E 'Tag_(CPU_arch|CPU_arch_profile|FP_arch|ABI_VFP_args)' | sed 's/^/   /' || true
-"$ARM_READELF" -d "$OUT" | grep NEEDED | sed 's/^/   /'
-
-# The two hash tables, asserted. `--hash-style=both` above and this check
-# together mean a future compiler swap cannot silently drop the SysV table again.
-HASHES="$("$ARM_READELF" -d "$OUT" | grep -oE '\(GNU_HASH\)|\(HASH\)' | sort -u | tr '\n' ' ')"
-echo "   hash tables: ${HASHES:-none}"
-case "$HASHES" in
-  *"(GNU_HASH)"*"(HASH)"*|*"(HASH)"*"(GNU_HASH)"*) : ;;
-  *) echo "FAIL: $MODE core lacks SysV .hash or .gnu.hash (got: ${HASHES:-none})" >&2; exit 4 ;;
-esac
-
-sha256sum "$OUT"
 python3 "$ROOT/tools/verify_uclibc_core.py" "$OUT"
-echo "PASS ARM/$MODE: ARM/uClibc core built with clang+lld; ABI and both hash tables verified."
-echo "NOTE: no RG35XX hardware run yet for this artifact."
+DYN="$("$ARM_READELF" -d "$OUT")"
+for tag in HASH GNU_HASH; do
+    printf '%s\n' "$DYN" | grep -q "($tag)" || fail "core missing $tag"
+done
+ATTR="$("$ARM_READELF" -A "$OUT")"
+printf '%s\n' "$ATTR" | grep -q 'Tag_ABI_VFP_args' && fail 'hard-float argument ABI is unsupported on target'
+if [ "$MODE" = softfp ]; then
+    # Validate OUR OBJECTS too. SDK libgcc can carry older ARM attributes.
+    has_vfp=0
+    for obj in "$BUILD"/*.o; do
+        "$ARM_READELF" -A "$obj" | grep -q 'Tag_FP_arch: VFPv3' && has_vfp=1
+    done
+    [ "$has_vfp" -eq 1 ] || fail 'softfp objects contain no VFPv3 attribute'
+fi
+{
+    echo "mode=$MODE"
+    echo 'target=original-RG35XX/GarlicOS-1.4.9/uClibc/ARM-EABI-soft-call'
+    echo "source_git_commit=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "source_tree_sha256=$(python3 "$ROOT/tools/source_fingerprint.py")"
+    echo "source_git_dirty=$(if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then echo yes; else echo no; fi)"
+    echo "compiler=$($CLANG --version | head -1)"
+    echo "sysroot=$SYSROOT"
+    echo "fpu_flags=${FPU_FLAGS[*]}"
+    echo "source_files=$i"
+    echo "sha256=$(sha256sum "$OUT" | awk '{print $1}')"
+} > "$BUILD/BUILD_PROVENANCE.txt"
+cat "$BUILD/BUILD_PROVENANCE.txt"
+echo "PASS: built and statically verified $OUT"
+echo 'NOTE: This does NOT establish hardware compatibility or measured frame rate.'

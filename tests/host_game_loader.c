@@ -221,7 +221,8 @@ int main(int argc, char **argv)
         }
         want_r = want_g = want_b = 0;
         sscanf(rgb, "%u,%u,%u", &want_r, &want_g, &want_b);
-        bool want_ok = (strcmp(expect, "ok") == 0);
+        bool want_blank = (strcmp(expect, "blank") == 0);
+        bool want_ok = (strcmp(expect, "ok") == 0) || want_blank;
         int want_bar = (topbar[0] == '-') ? -1 : atoi(topbar);
         const char *need_log = (sublog[0] == '-') ? NULL : sublog;
 
@@ -278,10 +279,10 @@ int main(int argc, char **argv)
         long dr = (long)r - (long)want_r, dg = (long)g - (long)want_g,
              db = (long)b - (long)want_b;
         bool colour_ok = (dr * dr + dg * dg + db * db) <= 400;
-        bool painted_ok = painted > 1000;
+        bool painted_ok = want_blank ? (painted == 0) : (painted > 1000);
         bool bar_ok = true;
-        if (want_bar == 1) bar_ok = (tr + tg + tb) <= 6;
-        if (want_bar == 0) bar_ok = (tr + tg + tb) > 6;
+        if (!want_blank && want_bar == 1) bar_ok = (tr + tg + tb) <= 6;
+        if (!want_blank && want_bar == 0) bar_ok = (tr + tg + tb) > 6;
         bool pass = geom_ok && colour_ok && painted_ok && bar_ok;
 
         printf("  %s  %-9s out=%ux%u mean=(%u,%u,%u) top=(%u,%u,%u) "
@@ -298,7 +299,7 @@ int main(int argc, char **argv)
             ++failures;
         }
         if (!painted_ok) {
-            printf("        the canvas was never painted\n");
+            printf("        %s\n", want_blank ? "unexpectedly painted a wrong-case asset" : "the canvas was never painted");
             ++failures;
         }
         if (!bar_ok) {
