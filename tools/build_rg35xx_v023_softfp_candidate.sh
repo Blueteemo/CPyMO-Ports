@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 : "${SDK:?Set SDK to the extracted ARM/uClibc SDK directory (arm-miyoo-linux-uclibcgnueabi_sdk-buildroot)}"
-: "${BUILD:=$ROOT/build_arm_softfp}"
+BUILD="$ROOT/build_arm_softfp"  # fixed path so provenance/package checks cannot drift
 echo '== Host regression: paths, launcher, game loading, menu'
 for t in tests/run_garlic_paths_test.sh tests/run_launcher_test.sh tests/run_game_loader_test.sh tests/run_menu_test.sh; do
     echo "RUN $t"
