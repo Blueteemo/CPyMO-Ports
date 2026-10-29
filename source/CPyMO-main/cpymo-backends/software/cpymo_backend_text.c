@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
 
 #ifndef TEXT_LINE_Y_OFFSET
 #define TEXT_LINE_Y_OFFSET 0
@@ -30,12 +31,13 @@ static void cpymo_backend_text_render(
     void *out_or_null, 
     int *w, int *h, 
     cpymo_str text, 
-    float scale, float baseline, int pad_top) 
+    float scale, float baseline) 
 {
     stbtt_fontinfo *font = cpymo_backend_software_cur_context->font;
 	float xpos = 0;
 
 	int width = 0, height = 0;
+	int pad_top = TEXT_TOP_PAD;
 	float y_base = 0;
 	while (text.len > 0) {
 		uint32_t codepoint = cpymo_str_utf8_try_head_to_utf32(&text);
@@ -54,10 +56,18 @@ static void cpymo_backend_text_render(
 		}
 
 		stbtt_GetCodepointBitmapBoxSubpixel(font, (int)codepoint, scale, scale, x_shift, 0, &x0, &y0, &x1, &y1);
+
+		/* Some glyphs reach above the ascent. Grow the top margin instead of
+		 * writing before the bitmap, which would overwrite the header. */
+		{
+			int above = (int)(baseline + (float)y0 + y_base);
+			if (above < 0 && -above + 1 > pad_top) pad_top = -above + 1;
+		}
+
 		if (out_or_null)
 			stbtt_MakeCodepointBitmapSubpixel(
 				font,
-				(unsigned char *)out_or_null + (int)xpos + x0 + (pad_top + (int)(baseline + y0 + y_base)) * *w,
+				(unsigned char *)out_or_null + (int)xpos + x0 + (pad_top + (int)(baseline + (float)y0 + y_base)) * *w,
 				x1 - x0, y1 - y0, *w, scale, scale, x_shift, 0, (int)codepoint);
 
 		xpos += (advance_width * scale);
@@ -108,7 +118,10 @@ error_t cpymo_backend_text_create(
     float baseline = scale * ascent;
 
     int w, h;
-    cpymo_backend_text_render(NULL, &w, &h, utf8_string, scale, baseline, TEXT_TOP_PAD);
+    cpymo_backend_text_render(NULL, &w, &h, utf8_string, scale, baseline);
+#ifdef GARLIC_UI_DEBUG
+    fprintf(stderr, "TX measure len=%zu w=%d h=%d\n", utf8_string.len, w, h);
+#endif
     h += 4; // magic
 
     cpymo_backend_text_impl *o = (cpymo_backend_text_impl *)malloc(sizeof(cpymo_backend_text_impl) + w * h);
@@ -117,16 +130,27 @@ error_t cpymo_backend_text_create(
     o->w = (uint16_t)w;
     o->h = (uint16_t)h;
     *out_width = cpymo_backend_text_width(utf8_string, single_character_size_in_logical_screen);
-    cpymo_backend_text_render(o->px, &w, &h, utf8_string, scale, baseline, TEXT_TOP_PAD);
+    cpymo_backend_text_render(o->px, &w, &h, utf8_string, scale, baseline);
     *out = o;
+#ifdef GARLIC_UI_DEBUG
+    fprintf(stderr, "TX create out=%p len=%zu w=%d h=%d\n", (void *)o, utf8_string.len, w, h);
+#endif
 
     scale = stbtt_ScaleForPixelHeight(font, single_character_size_in_logical_screen);
     o->baseline = scale * ascent;
+#ifdef GARLIC_UI_DEBUG
+    fprintf(stderr, "TX end  out=%p w=%u h=%u base=%f\n", (void *)o,
+        (unsigned)o->w, (unsigned)o->h, o->baseline);
+#endif
 
     return CPYMO_ERR_SUCC;   
 }
 
-void cpymo_backend_text_free(cpymo_backend_text t){ free(t); }
+void cpymo_backend_text_free(cpymo_backend_text t){
+#ifdef GARLIC_UI_DEBUG
+    fprintf(stderr, "TX free %p\n", t);
+#endif
+    free(t); }
 
 static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, float alpha, cpymo_backend_text_impl *t)
 {
@@ -153,6 +177,9 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
      * kept EXACTLY as v0.21 wrote them, including for negative coordinates,
      * where the cast is technically undefined: both versions share this
      * expression, so they agree whatever the target's conversion does. */
+#ifdef GARLIC_UI_DEBUG
+    fprintf(stderr, "TD begin t=%p w=%u h=%u x=%f y=%f\n", (void *)t, (unsigned)t->w, (unsigned)t->h, x, y);
+#endif
     for (uint16_t draw_rect_y = 0; draw_rect_y < t->h; ++draw_rect_y) {
         const uint8_t *src_row = t->px + (size_t)draw_rect_y * t->w;
 
@@ -182,6 +209,9 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
                 a);
         }
     }
+#ifdef GARLIC_UI_DEBUG
+    fprintf(stderr, "TD end\n");
+#endif
 }
 
 void cpymo_backend_text_draw(
@@ -216,7 +246,7 @@ float cpymo_backend_text_width(
     stbtt_GetFontVMetrics(font, &ascent, NULL, NULL);
     float baseline = scale * ascent;
     int w, h;
-    cpymo_backend_text_render(NULL, &w, &h, s, scale, baseline, TEXT_TOP_PAD);
+    cpymo_backend_text_render(NULL, &w, &h, s, scale, baseline);
 
     return TEXT_CHARACTER_W_SCALE * (float)w / win_w * game_w;
 }

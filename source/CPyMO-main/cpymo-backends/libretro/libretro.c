@@ -158,6 +158,9 @@ static cpymo_backend_text garlic_toast_text;
 static float             garlic_toast_left;
 static float             garlic_toast_w, garlic_toast_h;
 static uint32_t          garlic_prev_buttons;
+#ifdef GARLIC_UI_DEBUG
+static unsigned          polls_dbg;
+#endif
 static stbtt_fontinfo                  font;
 #ifndef GARLIC_NO_FFMPEG
 static struct SwsContext              *movie_sws;
@@ -214,7 +217,7 @@ void cpymo_backend_audio_unlock()
 const cpymo_backend_audio_info *cpymo_backend_audio_get_info(void)
 {
     static const cpymo_backend_audio_info audio_info = {
-        44100, cpymo_backend_audio_s16, 2
+        48000, cpymo_backend_audio_s16, 2
     };
     return &audio_info;
 }
@@ -455,7 +458,7 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
     info->geometry.max_width = GARLIC_OUTPUT_WIDTH;
     info->geometry.max_height = GARLIC_OUTPUT_HEIGHT;
     info->timing.fps = 60.0;
-    info->timing.sample_rate = 44100.0;
+    info->timing.sample_rate = 48000.0;
 }
 
 static void frame_cb(retro_usec_t usec)
@@ -1089,6 +1092,12 @@ static void input_update(void)
     a.auto_play = (pressed & GARLIC_BUTTON_Y) != 0;
     garlic_prev_buttons = b;
     garlic_oneshot(&a);
+#ifdef GARLIC_UI_DEBUG
+    if (polls_dbg++ % 20 == 0)
+        fprintf(stderr, "DBG poll ui=%d choice=%d say=%d cancel=%d ok=%d\n",
+            (int)cpymo_ui_enabled(&engine), (int)choice,
+            (int)engine.say.active, (int)input.cancel, (int)input.ok);
+#endif
     input.up = a.up;
     input.down = a.down;
     input.left = a.left;
@@ -1108,8 +1117,8 @@ static void input_update(void)
 void retro_run(void)
 {
     if (!garlic_game_loaded) return;
-    static const int samples = 44100 / 60;
-    static int16_t audio_buffer[44100 / 60 * 2];
+    static const int samples = 48000 / 60;
+    static int16_t audio_buffer[48000 / 60 * 2];
     bool redraw = false;
 
     input_poll_cb();
@@ -1119,6 +1128,11 @@ void retro_run(void)
     error_t err = cpymo_engine_update(&engine, delta, &redraw);
     uint64_t after_update = garlic_micros();
     garlic_prof_update_us += after_update - tick;
+    if (err != CPYMO_ERR_SUCC) {
+#ifdef GARLIC_UI_DEBUG
+        fprintf(stderr, "DBG err=%d\n", (int)err);
+#endif
+    }
     if (err == CPYMO_ERR_NO_MORE_CONTENT)
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
 
@@ -1138,6 +1152,9 @@ void retro_run(void)
         garlic_toast_draw();
         garlic_prof_convert_us += garlic_micros() - after_draw;
         garlic_first_frame = false;
+#ifdef GARLIC_UI_DEBUG
+        fprintf(stderr, "DBG frame drawn %d\n", (int)garlic_prof_frames);
+#endif
     }
     if (garlic_toast_left > 0) {
         garlic_toast_left -= delta;
@@ -1150,6 +1167,9 @@ void retro_run(void)
     video_cb(garlic_rgb565_frame, GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT, GARLIC_OUTPUT_WIDTH * 2);
     garlic_prof_video_us += garlic_micros() - tick;
 
+#ifdef GARLIC_UI_DEBUG
+    if (garlic_prof_frames % 1 == 0) fprintf(stderr, "DBG run end\n");
+#endif
     if (audio_enabled && !use_audio_callback) {
         tick = garlic_micros();
         cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
