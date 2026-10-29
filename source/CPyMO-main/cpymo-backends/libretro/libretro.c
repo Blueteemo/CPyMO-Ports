@@ -17,6 +17,7 @@
 
 #include "../../cpymo/cpymo_engine.h"
 #include "../../cpymo/cpymo_game_selector.h"
+#include "../../cpymo/cpymo_save.h"
 #include "../../endianness.h/endianness.h"
 #include "../software/cpymo_backend_software.h"
 #include "../include/cpymo_backend_audio.h"
@@ -150,6 +151,13 @@ static cpymo_input                     input      = { 0 };
 /* Libretro frame-time callback is optional; a missing callback must not
  * freeze PyMO #wait and transitions. Default to 60Hz. */
 static float                           delta      = 1.0f / 60.0f;
+
+/* Short-lived on-screen notice for one-shot keys (quick save/load, auto play).
+ * Drawn over the finished canvas, so it never disturbs engine layout. */
+static cpymo_backend_text garlic_toast_text;
+static float             garlic_toast_left;
+static float             garlic_toast_w, garlic_toast_h;
+static uint32_t          garlic_prev_buttons;
 static stbtt_fontinfo                  font;
 #ifndef GARLIC_NO_FFMPEG
 static struct SwsContext              *movie_sws;
@@ -989,6 +997,73 @@ static void garlic_load_report(const char *gamedir, error_t err,
            (unsigned)engine.gameconfig.imagesize_h);
 }
 
+static void garlic_toast_clear(void)
+{
+    if (garlic_toast_text) cpymo_backend_text_free(garlic_toast_text);
+    garlic_toast_text = NULL;
+    garlic_toast_left = 0;
+}
+
+static void garlic_toast(const char *text)
+{
+    garlic_toast_clear();
+    if (!text) return;
+    float h = engine.gameconfig.imagesize_h * 0.045f;
+    if (h < 11.0f) h = 11.0f;
+    if (h > 26.0f) h = 26.0f;
+    float w = 0;
+    if (cpymo_backend_text_create(&garlic_toast_text, &w,
+        cpymo_str_pure(text), h) != CPYMO_ERR_SUCC) {
+        garlic_toast_text = NULL;
+        return;
+    }
+    garlic_toast_w = w;
+    garlic_toast_h = h;
+    garlic_toast_left = 1.4f;
+}
+
+static void garlic_toast_draw(void)
+{
+    if (!garlic_toast_text || garlic_toast_left <= 0) return;
+    float w = garlic_toast_w, h = garlic_toast_h;
+    float cw = (float)engine.gameconfig.imagesize_w;
+    float ch = (float)engine.gameconfig.imagesize_h;
+    float x = cw * 0.03f, y = ch * 0.86f;
+    float pad = h * 0.35f;
+    float box[] = { x - pad, y - pad, w + pad * 2, h + pad * 2 };
+    float alpha = garlic_toast_left < 0.3f ? garlic_toast_left / 0.3f : 1.0f;
+    cpymo_backend_image_fill_rects(box, 1, cpymo_color_black, 0.72f * alpha,
+        cpymo_backend_image_draw_type_ui_element_bg);
+    cpymo_backend_text_draw(garlic_toast_text, x, y + h, cpymo_color_white,
+        alpha, cpymo_backend_image_draw_type_ui_element);
+}
+
+/* Quick save/load and auto play, mirroring NDS START/SELECT/Y. */
+static void garlic_oneshot(const garlic_actions *a)
+{
+    if (cpymo_ui_enabled(&engine) || !engine.say.active) return;
+    if (a->quick_save) {
+        error_t e = cpymo_save_write(&engine, 1);
+        garlic_toast(e == CPYMO_ERR_SUCC ? "已快速保存到存档 1"
+                                         : "快速保存失败");
+        log_cb(RETRO_LOG_INFO, "quick save slot 1: %d\n", (int)e);
+    } else if (a->quick_load) {
+        error_t e = CPYMO_ERR_CAN_NOT_OPEN_FILE;
+        FILE *f = cpymo_save_open_read(&engine, 1);
+        if (f) {
+            e = cpymo_save_load_savedata(&engine, f);
+            fclose(f);
+        }
+        garlic_toast(e == CPYMO_ERR_SUCC ? "已快速读取存档 1"
+                                         : "快速读取失败或存档不存在");
+        log_cb(RETRO_LOG_INFO, "quick load slot 1: %d\n", (int)e);
+    } else if (a->auto_play) {
+        engine.say.auto_mode = !engine.say.auto_mode;
+        engine.say.auto_mode_timer = -1;
+        garlic_toast(engine.say.auto_mode ? "自动播放 开" : "自动播放 关");
+    }
+}
+
 static void input_update(void)
 {
 #define JOY(x) input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_##x)
@@ -1006,7 +1081,14 @@ static void input_update(void)
     if (JOY(START))  b |= GARLIC_BUTTON_START;
     if (JOY(SELECT)) b |= GARLIC_BUTTON_SELECT;
 #undef JOY
-    garlic_actions a = garlic_map_buttons(b, engine.say.active && !engine.ui);
+    bool choice = engine.select_img.selections != NULL;
+    garlic_actions a = garlic_map_buttons(b, cpymo_ui_enabled(&engine), choice);
+    uint32_t pressed = b & ~garlic_prev_buttons;
+    a.quick_save = (pressed & GARLIC_BUTTON_START) != 0;
+    a.quick_load = (pressed & GARLIC_BUTTON_SELECT) != 0;
+    a.auto_play = (pressed & GARLIC_BUTTON_Y) != 0;
+    garlic_prev_buttons = b;
+    garlic_oneshot(&a);
     input.up = a.up;
     input.down = a.down;
     input.left = a.left;
@@ -1053,8 +1135,13 @@ void retro_run(void)
             environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
             return;
         }
+        garlic_toast_draw();
         garlic_prof_convert_us += garlic_micros() - after_draw;
         garlic_first_frame = false;
+    }
+    if (garlic_toast_left > 0) {
+        garlic_toast_left -= delta;
+        if (garlic_toast_left <= 0) garlic_toast_clear();
     }
     garlic_prof_frames++;
     if (garlic_prof_frames >= 180) garlic_prof_report();

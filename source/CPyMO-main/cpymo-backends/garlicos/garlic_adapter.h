@@ -27,14 +27,19 @@ enum garlic_button {
 typedef struct garlic_actions {
     bool up, down, left, right;
     bool ok, cancel, skip, hide_window;
+    /* One-shot keys; the caller clears them when the press is consumed. */
+    bool quick_save, quick_load, auto_play;
 } garlic_actions;
 
 typedef struct garlic_viewport {
     int x, y, w, h;
 } garlic_viewport;
 
-/* In a dialogue, SELECT acts as 'up' to open backlog; in a menu it does not. */
-garlic_actions garlic_map_buttons(uint32_t buttons, bool in_dialogue);
+/* Mirrors the CPyMO NDS mapping on a single screen. `ui` is an engine UI
+ * (menu, save list, backlog, config), `choice` a script menu without saving:
+ * B cancels there and X opens the menu in the story. START/SELECT/ Y are
+ * one-shot and reported separately, A/B/X/R keep the NDS semantics. */
+garlic_actions garlic_map_buttons(uint32_t buttons, bool ui, bool choice);
 
 /* Full contain / letterbox, no distortion; dimensions can exceed screen. */
 bool garlic_compute_viewport(int src_w, int src_h,

@@ -3,17 +3,25 @@
 #include <stdlib.h>
 #include <limits.h>
 
-garlic_actions garlic_map_buttons(uint32_t b, bool dialogue)
+garlic_actions garlic_map_buttons(uint32_t b, bool ui, bool choice)
 {
     garlic_actions a = {0};
-    a.up = (b & GARLIC_BUTTON_UP) != 0 || (dialogue && (b & GARLIC_BUTTON_SELECT) != 0);
+    a.up = (b & GARLIC_BUTTON_UP) != 0;
     a.down = (b & GARLIC_BUTTON_DOWN) != 0;
     a.left = (b & GARLIC_BUTTON_LEFT) != 0;
     a.right = (b & GARLIC_BUTTON_RIGHT) != 0;
     a.ok = (b & GARLIC_BUTTON_A) != 0;
-    a.cancel = (b & (GARLIC_BUTTON_B | GARLIC_BUTTON_START)) != 0;
-    a.skip = (b & (GARLIC_BUTTON_X | GARLIC_BUTTON_L)) != 0;
-    a.hide_window = (b & (GARLIC_BUTTON_Y | GARLIC_BUTTON_R)) != 0;
+    /* NDS: A confirms, B backs out of every menu, X opens the right menu in
+     * the story, B hides the window while playing. A script menu without a
+     * save entry cancels with B too, so a choice never needs the menu key. */
+    a.cancel = (b & (ui || choice ? GARLIC_BUTTON_B : GARLIC_BUTTON_X)) != 0;
+    a.skip = (b & GARLIC_BUTTON_R) != 0;
+    a.hide_window = !ui && !choice && (b & GARLIC_BUTTON_B) != 0;
+    /* NDS: START quick-saves slot 1, SELECT quick-loads slot 1. The NDS has no
+     * spare key for auto play (it lives in the menu); Y takes it here. */
+    a.quick_save = (b & GARLIC_BUTTON_START) != 0;
+    a.quick_load = (b & GARLIC_BUTTON_SELECT) != 0;
+    a.auto_play = (b & GARLIC_BUTTON_Y) != 0;
     return a;
 }
 

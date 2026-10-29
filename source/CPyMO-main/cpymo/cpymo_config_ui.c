@@ -12,6 +12,7 @@
 typedef struct {
 	cpymo_backend_text show_name;
 	cpymo_backend_text show_value;
+	float show_name_width;
 	float show_value_width;
 	int value, max_value, min_value;
 	bool show_inc_dec_button;
@@ -22,6 +23,9 @@ typedef struct {
 	float inc_btn_w, dec_btn_w;
 	cpymo_config_ui_item items[CONFIG_ITEMS];
 	float font_size;
+	/* Widest label of the list: labels share one right-aligned column so a
+	 * short label such as the text-speed row cannot drift to the left. */
+	float label_column_w;
 
 	cpymo_key_pluse left, right, ok, mouse_button;
 } cpymo_config_ui;
@@ -57,6 +61,7 @@ static inline void cpymo_config_ui_calc_layout(
 	float y,
 	const cpymo_config_ui_item **out_item,
 	float *out_text_y,
+	float *out_label_x,
 	float *out_value_display_x,
 	float *out_inc_btn_xywh,
 	float *out_dec_btn_x,
@@ -71,6 +76,8 @@ static inline void cpymo_config_ui_calc_layout(
 
 	float text_y = y + height / 2 + ui->font_size / 4;
 	*out_text_y = text_y;
+
+	*out_label_x = side_padding + ui->label_column_w - item->show_name_width;
 
 	const float max_font_size = 32 / 240.0f * e->gameconfig.imagesize_h * 0.8f;
 	float inc_dec_btn_width = 0;
@@ -87,14 +94,6 @@ static inline void cpymo_config_ui_calc_layout(
 	float right_edge = 
 		(float)e->gameconfig.imagesize_w - side_padding;
 
-	*out_value_display_x = 
-		right_edge 
-		- inc_dec_btn_space 
-		- inc_dec_btn_width 
-		- item->show_value_width;
-
-
-
 	out_inc_btn_xywh[0] = right_edge - inc_dec_btn_width;
 	out_inc_btn_xywh[1] = (height - max_font_size) / 2 + y;
 	out_inc_btn_xywh[2] = inc_dec_btn_width;
@@ -110,6 +109,13 @@ static inline void cpymo_config_ui_calc_layout(
 		out_inc_btn_xywh[0] 
 		- (max_value_width + 1.95f * inc_dec_btn_space + inc_dec_btn_width);
 
+	/* Center every value in the space between the two buttons so short and
+	 * long values share one axis; items without buttons keep the right edge. */
+	*out_value_display_x = item->show_inc_dec_button
+		? (*out_dec_btn_x + inc_dec_btn_width
+			+ out_inc_btn_xywh[0] - item->show_value_width) * 0.5f
+		: right_edge - item->show_value_width;
+
 	*out_inc_dec_btn_symbol = y + height / 2 + max_font_size / 4;
 
 }
@@ -120,6 +126,7 @@ static void cpymo_config_ui_draw_node(const cpymo_engine *e, const void *node_to
 	const cpymo_config_ui_item *item;
 	float 
 		text_y, 
+		label_x,
 		value_display_x,
 		inc_dec_btn_xywh[4],
 		dec_btn_x,
@@ -132,14 +139,22 @@ static void cpymo_config_ui_draw_node(const cpymo_engine *e, const void *node_to
 		item_index, y,
 		&item,
 		&text_y,
+		&label_x,
 		&value_display_x,
 		inc_dec_btn_xywh,
 		&dec_btn_x,
 		&inc_dec_btn_symbol_y);
 
+#ifdef GARLIC_UI_DEBUG
+	fprintf(stderr, "UI item=%u label_x=%.1f label_w=%.1f value_x=%.1f "
+		"dec_x=%.1f inc_x=%.1f canvas=%dx%d\n", (unsigned)item_index,
+		label_x, item->show_name_width, value_display_x, dec_btn_x,
+		inc_dec_btn_xywh[0], (int)e->gameconfig.imagesize_w,
+		(int)e->gameconfig.imagesize_h);
+#endif
 	if (item->show_name) {
 		cpymo_backend_text_draw(
-			item->show_name, side_padding, text_y, cpymo_color_white, 1.0f,
+			item->show_name, label_x, text_y, cpymo_color_white, 1.0f,
 			cpymo_backend_image_draw_type_ui_element);
 	}
 
@@ -186,7 +201,7 @@ static void cpymo_config_ui_draw_node(const cpymo_engine *e, const void *node_to
 
 		cpymo_backend_text_draw(
 			ui->inc_btn,
-			inc_dec_btn_xywh[0] + (inc_dec_btn_xywh[2] - ui->inc_btn_w) / 2, 
+			inc_dec_btn_xywh[0] + (inc_dec_btn_xywh[2] - ui->dec_btn_w) / 2, 
 			inc_dec_btn_symbol_y, 
 			is_pointed || inc_pressed ? cpymo_color_black : cpymo_color_white, 1.0f,
 			cpymo_backend_image_draw_type_ui_element);
@@ -213,7 +228,7 @@ static void cpymo_config_ui_draw_node(const cpymo_engine *e, const void *node_to
 
 		cpymo_backend_text_draw(
 			ui->dec_btn,
-			inc_dec_btn_xywh[0] + (inc_dec_btn_xywh[2] - ui->inc_btn_w) / 2, 
+			inc_dec_btn_xywh[0] + (inc_dec_btn_xywh[2] - ui->dec_btn_w) / 2, 
 			inc_dec_btn_symbol_y, 
 			is_pointed || dec_pressed ? cpymo_color_black : cpymo_color_white, 1.0f,
 			cpymo_backend_image_draw_type_ui_element);
@@ -251,6 +266,10 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 	float width;
 	cpymo_backend_text show_name;
 
+	ui->label_column_w = 0;
+	for (size_t i = 0; i < CONFIG_ITEMS; ++i)
+		ui->items[i].show_name_width = 0;
+
 	error_t err = CPYMO_ERR_SUCC;
 
 
@@ -267,6 +286,8 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 			if (ui->items[ITEM_ID].show_name) \
 				cpymo_backend_text_free(ui->items[ITEM_ID].show_name); \
 			ui->items[ITEM_ID].show_name = show_name; \
+			ui->items[ITEM_ID].show_name_width = width; \
+			if (width > ui->label_column_w) ui->label_column_w = width; \
 		} \
 		err = cpymo_config_ui_set_value(e, ui, ITEM_ID, CUR_VAL, true); \
 		if (err != CPYMO_ERR_SUCC) { \
@@ -426,12 +447,17 @@ JUST_REFRESH:
 	switch (item_index) {
 	case ITEM_BGM_VOL:
 		cpymo_audio_set_channel_volume(CPYMO_AUDIO_CHANNEL_BGM, &e->audio, (float)val / 10.0f);
+		/* Persist on every change: a frontend quit or a power cut must not
+		 * bring the old, louder volume back. */
+		cpymo_save_config_save(e);
 		break;
 	case ITEM_SE_VOL:
 		cpymo_audio_set_channel_volume(CPYMO_AUDIO_CHANNEL_SE, &e->audio, (float)val / 10.0f);
+		cpymo_save_config_save(e);
 		break;
 	case ITEM_VO_VOL:
 		cpymo_audio_set_channel_volume(CPYMO_AUDIO_CHANNEL_VO, &e->audio, (float)val / 10.0f);
+		cpymo_save_config_save(e);
 		break;
 	case ITEM_FONT_SIZE:
 		e->gameconfig.fontsize = (uint16_t)val;
@@ -496,6 +522,7 @@ static error_t cpymo_config_ui_update(cpymo_engine *e, float dt, void *sel)
 		const cpymo_config_ui_item *item;
 		float y;
 		float x;
+		float label_x_unused;
 
 		float inc_dec_rect_xywh[4];
 		float dec_rect_x;
@@ -505,6 +532,7 @@ static error_t cpymo_config_ui_update(cpymo_engine *e, float dt, void *sel)
 			((float)e->gameconfig.imagesize_h / CONFIG_ITEMS) * i,
 			&item,
 			&y,
+			&label_x_unused,
 			&x,
 			inc_dec_rect_xywh,
 			&dec_rect_x,
@@ -591,6 +619,7 @@ error_t cpymo_config_ui_mouse_button_just_hold(cpymo_engine *e)
 		const cpymo_config_ui_item *item;
 		float y;
 		float x;
+		float label_x_unused;
 
 		float inc_dec_rect_xywh[4];
 		float dec_rect_x;
@@ -600,6 +629,7 @@ error_t cpymo_config_ui_mouse_button_just_hold(cpymo_engine *e)
 			((float)e->gameconfig.imagesize_h / CONFIG_ITEMS) * i,
 			&item,
 			&y,
+			&label_x_unused,
 			&x,
 			inc_dec_rect_xywh,
 			&dec_rect_x,

@@ -1,4 +1,8 @@
 ﻿#include "cpymo_prelude.h"
+
+#define CPYMO_DEFAULT_BGM_HEADROOM 0.8f
+#define CPYMO_DEFAULT_SE_HEADROOM 0.7f
+#define CPYMO_DEFAULT_VOICE_HEADROOM 0.7f
 #include "cpymo_engine.h"
 #include "cpymo_interpreter.h"
 #include <string.h>
@@ -66,10 +70,18 @@ error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir)
 
 	// set default volume for audio system
 	{
+		/* The game configs are written for phones with a quiet DAC and often
+		 * ask for everything (s60v5 asks for voice = 8 of 5, i.e. full scale).
+		 * A 0.8 / 0.7 headroom keeps the first launch gentle while leaving the
+		 * sliders a useful range; a saved config.csav still wins. */
 		float v = cpymo_utils_clamp(out->gameconfig.bgmvolume, 0, 5) * 0.2f;
+		v *= CPYMO_DEFAULT_BGM_HEADROOM;
 		cpymo_audio_set_channel_volume(CPYMO_AUDIO_CHANNEL_BGM, &out->audio, v);
+		v = cpymo_utils_clamp(out->gameconfig.bgmvolume, 0, 5) * 0.2f
+			* CPYMO_DEFAULT_SE_HEADROOM;
 		cpymo_audio_set_channel_volume(CPYMO_AUDIO_CHANNEL_SE, &out->audio, v);
-		v = cpymo_utils_clamp(out->gameconfig.vovolume, 0, 5) * 0.2f;
+		v = cpymo_utils_clamp(out->gameconfig.vovolume, 0, 5) * 0.2f
+			* CPYMO_DEFAULT_VOICE_HEADROOM;
 		cpymo_audio_set_channel_volume(CPYMO_AUDIO_CHANNEL_VO, &out->audio, v);
 	}
 

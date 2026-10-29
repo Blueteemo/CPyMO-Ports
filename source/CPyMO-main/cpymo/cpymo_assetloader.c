@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <memory.h>
+#include <strings.h>
 #include <assert.h>
 #include "../stb/stb_image.h"
 
@@ -84,6 +85,14 @@ void cpymo_assetloader_free(cpymo_assetloader * loader)
 	}
 }
 
+static bool cpymo_assetloader_path_readable(const char *path)
+{
+	FILE *f = fopen(path, "rb");
+	if (!f) return false;
+	fclose(f);
+	return true;
+}
+
 error_t cpymo_assetloader_get_fs_path(
 	char **out_str,
 	cpymo_str asset_name,
@@ -109,6 +118,42 @@ error_t cpymo_assetloader_get_fs_path(
 	strncat(str, asset_name.begin, asset_name.len);
 	strcat(str, ".");
 	strcat(str, asset_ext);
+
+	/* PyMO ports disagree on the extension and on its case (Android rips use
+	 * .png where the S60 build stored .jpg, and cards written on Windows are
+	 * full of .PNG). Try the neighbouring spellings before giving up, so a
+	 * game directory works without being rewritten. */
+	static const char *const alt_image[] = { "png", "jpg", "jpeg", "bmp", NULL };
+	static const char *const alt_audio[] = { "mp3", "ogg", "wav", NULL };
+	static const char *const alt_text[] = { "txt", "TXT", "Txt", NULL };
+
+	const char *const *alts = NULL;
+	size_t ext_off = strlen(str) - strlen(asset_ext);
+	if (strcasecmp(asset_ext, "png") == 0 || strcasecmp(asset_ext, "jpg") == 0
+		|| strcasecmp(asset_ext, "jpeg") == 0 || strcasecmp(asset_ext, "bmp") == 0)
+		alts = alt_image;
+	else if (strcasecmp(asset_ext, "mp3") == 0 || strcasecmp(asset_ext, "ogg") == 0
+		|| strcasecmp(asset_ext, "wav") == 0)
+		alts = alt_audio;
+	else if (strcasecmp(asset_ext, "txt") == 0)
+		alts = alt_text;
+
+	if (cpymo_assetloader_path_readable(str)) {
+		*out_str = str;
+		return CPYMO_ERR_SUCC;
+	}
+
+	if (alts) {
+		for (size_t i = 0; alts[i]; ++i) {
+			if (strcasecmp(alts[i], asset_ext) == 0) continue;
+			strcpy(str + ext_off, alts[i]);
+			if (cpymo_assetloader_path_readable(str)) {
+				*out_str = str;
+				return CPYMO_ERR_SUCC;
+			}
+		}
+		strcpy(str + ext_off, asset_ext);
+	}
 
 	*out_str = str;
 	return CPYMO_ERR_SUCC;

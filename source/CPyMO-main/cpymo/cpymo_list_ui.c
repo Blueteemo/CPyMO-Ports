@@ -481,7 +481,9 @@ static void cpymo_list_ui_draw(const cpymo_engine *e, const void *ui_data)
 	#endif
 
 	float xywh[] = {-100, -100, 200 + (float)e->gameconfig.imagesize_w, 200 + (float)e->gameconfig.imagesize_h };
-	cpymo_backend_image_fill_rects(xywh, 1, cpymo_color_black, 0.5f, cpymo_backend_image_draw_type_ui_bg);
+	/* 0.5 was too transparent over bright CG art: white labels became hard to
+	 * read. 0.66 keeps the game visible while every list stays legible. */
+	cpymo_backend_image_fill_rects(xywh, 1, cpymo_color_black, 0.66f, cpymo_backend_image_draw_type_ui_bg);
 
 	const cpymo_list_ui *ui = (cpymo_list_ui *)ui_data;
 

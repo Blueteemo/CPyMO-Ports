@@ -114,6 +114,11 @@ static void cpymo_rmenu_draw(const cpymo_engine *e, const void *ui_data)
 			cpymo_backend_image_draw_type_ui_element_bg);
 	}
 
+	/* Darken the menu art as well so the white labels keep contrast when the
+	 * story behind it is bright. */
+	cpymo_backend_image_fill_rects(bg_xywh, 1, cpymo_color_black, 0.45f,
+		cpymo_backend_image_draw_type_ui_element_bg);
+
 	cpymo_select_img_draw(&r->menu, e->gameconfig.imagesize_w, e->gameconfig.imagesize_h, false);
 
 	#ifdef __3DS__

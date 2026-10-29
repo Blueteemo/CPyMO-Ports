@@ -52,6 +52,7 @@ sources() {
     printf '%s\n' \
        "$SRC/cpymo-backends/libretro/libretro.c" \
        "$SRC/cpymo-backends/libretro/cpymo_audio_mp3.c" \
+       "$SRC/cpymo-backends/libretro/stb_vorbis.c" \
        "$SRC/cpymo-backends/garlicos/garlic_adapter.c" \
        "$SRC/cpymo-backends/garlicos/garlic_paths.c" \
        "$SRC/cpymo-backends/software/cpymo_backend_image.c" \
