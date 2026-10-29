@@ -5,6 +5,8 @@
 #include <string.h>
 #include <memory.h>
 #include <strings.h>
+#include <ctype.h>
+#include <dirent.h>
 #include <assert.h>
 #include "../stb/stb_image.h"
 
@@ -93,6 +95,35 @@ static bool cpymo_assetloader_path_readable(const char *path)
 	return true;
 }
 
+/* \`path\` is <dir>/<base>.<ext>; look for an entry of <dir> that equals
+ * <base>.<ext> ignoring case and, when one exists, replace \`path\` by it.
+ * Only reached when the exact and case-variant spellings all missed. */
+static bool cpymo_assetloader_find_case_insensitive(char *path)
+{
+	char *slash = strrchr(path, '/');
+	if (!slash) return false;
+	const char *want = slash + 1;
+
+	*slash = 0;
+	DIR *dir = opendir(path);
+	*slash = '/';
+	if (!dir) return false;
+
+	char best[256];
+	best[0] = 0;
+	struct dirent *ent;
+	while ((ent = readdir(dir)) != NULL) {
+		if (strcasecmp(ent->d_name, want) != 0) continue;
+		if (best[0] && strcmp(ent->d_name, best) >= 0) continue;
+		snprintf(best, sizeof(best), "%s", ent->d_name);
+	}
+	closedir(dir);
+	if (!best[0]) return false;
+
+	snprintf(slash + 1, sizeof(best) + 1, "%s", best);
+	return cpymo_assetloader_path_readable(path);
+}
+
 error_t cpymo_assetloader_get_fs_path(
 	char **out_str,
 	cpymo_str asset_name,
@@ -143,17 +174,70 @@ error_t cpymo_assetloader_get_fs_path(
 		return CPYMO_ERR_SUCC;
 	}
 
+	/* Same extension in another case first (cards written on Windows and
+	 * macOS produce .PNG/.Png), then the other formats, each also in other
+	 * cases. The order is fixed, so a directory holding both .png and .jpg
+	 * always resolves to the .png the gameconfig asked for. */
+	#define TRY_EXT(e) \
+		do { \
+			strcpy(str + ext_off, (e)); \
+			if (cpymo_assetloader_path_readable(str)) { \
+				*out_str = str; \
+				found = true; \
+				return CPYMO_ERR_SUCC; \
+			} \
+		} while (0)
+
+	bool found = false;
 	if (alts) {
+		char upper[8], titled[8];
+		size_t n = strlen(asset_ext);
+		if (n + 1 < sizeof(upper)) {
+			for (size_t i = 0; i <= n; ++i) {
+				upper[i] = (char)toupper((unsigned char)asset_ext[i]);
+				titled[i] = (char)(i == 0 ? toupper((unsigned char)asset_ext[i])
+					: tolower((unsigned char)asset_ext[i]));
+			}
+			if (strcmp(upper, asset_ext) != 0) TRY_EXT(upper);
+			if (strcmp(titled, asset_ext) != 0 &&
+				strcmp(titled, upper) != 0) TRY_EXT(titled);
+		}
+
 		for (size_t i = 0; alts[i]; ++i) {
 			if (strcasecmp(alts[i], asset_ext) == 0) continue;
-			strcpy(str + ext_off, alts[i]);
-			if (cpymo_assetloader_path_readable(str)) {
-				*out_str = str;
-				return CPYMO_ERR_SUCC;
+			TRY_EXT(alts[i]);
+			size_t m = strlen(alts[i]);
+			if (m + 1 < sizeof(upper)) {
+				for (size_t j = 0; j <= m; ++j) {
+					upper[j] = (char)toupper((unsigned char)alts[i][j]);
+					titled[j] = (char)(j == 0 ? toupper((unsigned char)alts[i][j])
+						: tolower((unsigned char)alts[i][j]));
+				}
+				if (strcmp(upper, alts[i]) != 0) TRY_EXT(upper);
+				if (strcmp(titled, alts[i]) != 0 &&
+					strcmp(titled, upper) != 0) TRY_EXT(titled);
 			}
+		}
+		/* Nothing matched by case alone: the base name may be spelled in
+		 * another case too (cards written on Windows). Look the directory up
+		 * once and take the case-insensitive match of the lowest candidate
+		 * extension, so the choice stays deterministic. */
+		for (int pass = 0; pass < 2 && !found; ++pass) {
+			const char *const *list = pass == 0 ? &asset_ext : alts;
+			size_t count = pass == 0 ? 1 : 0;
+			while (pass == 1 && alts && alts[count]) count++;
+			for (size_t i = 0; i < count && !found; ++i) {
+				strcpy(str + ext_off, list[i]);
+				found = cpymo_assetloader_find_case_insensitive(str);
+			}
+		}
+		if (found) {
+			*out_str = str;
+			return CPYMO_ERR_SUCC;
 		}
 		strcpy(str + ext_off, asset_ext);
 	}
+	#undef TRY_EXT
 
 	*out_str = str;
 	return CPYMO_ERR_SUCC;

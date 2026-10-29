@@ -173,10 +173,9 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
     const float cg = cpymo_backend_software_u8f[col.g];
     const float cb = cpymo_backend_software_u8f[col.b];
 
-    /* The (size_t)x / (size_t)y casts and the `>= window_size` comparisons are
-     * kept EXACTLY as v0.21 wrote them, including for negative coordinates,
-     * where the cast is technically undefined: both versions share this
-     * expression, so they agree whatever the target's conversion does. */
+    /* Convert through a signed intermediate: casting a negative float straight
+     * to size_t is undefined, and text is regularly drawn above or left of the
+     * window (UBSan caught -57 -> unsigned long). */
 #ifdef GARLIC_UI_DEBUG
     fprintf(stderr, "TD begin t=%p w=%u h=%u x=%f y=%f\n", (void *)t, (unsigned)t->w, (unsigned)t->h, x, y);
 #endif
@@ -184,10 +183,12 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
         const uint8_t *src_row = t->px + (size_t)draw_rect_y * t->w;
 
         for (uint16_t draw_rect_x = 0; draw_rect_x < t->w * TEXT_CHARACTER_W_SCALE; ++draw_rect_x) {
-            size_t draw_x = draw_rect_x + (size_t)x;
-            size_t draw_y = draw_rect_y + (size_t)y;
+            long draw_x = (long)x + (long)draw_rect_x;
+            long draw_y = (long)y + (long)draw_rect_y;
 
-            if (draw_x >= window_size_w || draw_y >= window_size_h) continue;
+            if (draw_x < 0 || draw_y < 0 ||
+                draw_x >= (long)window_size_w || draw_y >= (long)window_size_h)
+                continue;
 
             float pixel_alpha = cpymo_backend_software_u8f[
                 src_row[draw_rect_x / TEXT_CHARACTER_W_SCALE]];
@@ -201,8 +202,8 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
 
             cpymo_backend_software_image_write_blend(
                 render_target, 
-                draw_x,
-                draw_y,
+                (size_t)draw_x,
+                (size_t)draw_y,
                 cr,
                 cg,
                 cb,

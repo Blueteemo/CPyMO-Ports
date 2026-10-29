@@ -42,6 +42,12 @@
 /* RG35XX/GarlicOS runs RetroArch at 48 kHz; matching it keeps the frontend
  * resampler out of the chain. */
 #define GARLIC_AUDIO_OUT_RATE 48000
+/* Windowed-sinc resampler: 16 taps over 256 fractional phases (~8 KB per
+ * channel, built once per play). Images of a 12 kHz tone fall from -21 dB
+ * (cubic) to below -70 dB. */
+#define GARLIC_AUDIO_RES_TAPS 16
+#define GARLIC_AUDIO_RES_PHASES 512
+#define GARLIC_AUDIO_RES_SHIFT 7
 #define GARLIC_AUDIO_FILE_MAX (16u * 1024u * 1024u)
 
 enum { garlic_dec_mp3, garlic_dec_vorbis, garlic_dec_wav };
@@ -63,9 +69,12 @@ typedef struct {
     int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME * 2];
     int16_t vorbuf[4096 * 2];
     size_t pcm_frames, pcm_cur;
-    /* Catmull-Rom window over the last four source frames plus the fractional
-     * read position. `fade` hides the seam after a loop restart. */
-    int16_t win[4][2];
+    /* Windowed-sinc interpolator: TAPS source frames, a 256-phase kernel for
+     * the current step, and the fractional read position. `fade` hides the
+     * seam after a loop restart. */
+    int16_t win[GARLIC_AUDIO_RES_TAPS][2];
+    int16_t *res_tab;
+    uint32_t res_step;
     uint32_t frac, step, fade, fade_len;
     bool primed;
     int rate, channels;
@@ -74,6 +83,7 @@ typedef struct {
 } garlic_mp3_channel;
 
 static garlic_mp3_channel garlic_ch[CPYMO_AUDIO_MAX_CHANNELS];
+static bool ch_build_resampler(garlic_mp3_channel *c);
 static int garlic_audio_ready = 0;
 
 /* --- channel lifecycle ------------------------------------------------ */
@@ -181,6 +191,7 @@ static size_t ch_decode(garlic_mp3_channel *c)
             c->step = (uint32_t)(((uint64_t)c->rate << 16) /
                 GARLIC_AUDIO_OUT_RATE);
             if (!c->step) c->step = 1;
+            ch_build_resampler(c);
             c->pcm_frames = (size_t)n;
             c->pcm_cur = 0;
             return (size_t)n;
@@ -266,6 +277,12 @@ static error_t ch_play(
         ch_stream_rewind(c);
         c->step = (uint32_t)(((uint64_t)c->rate << 16) / GARLIC_AUDIO_OUT_RATE);
         if (!c->step) c->step = 65536u;
+        if (!ch_build_resampler(c)) { ch_close_stream(c); return CPYMO_ERR_OUT_OF_MEM; }
+#ifdef GARLIC_AUDIO_DEBUG
+        fprintf(stderr, "WAVDBG kind=%d rate=%d ch=%d align=%d bits=%d "
+            "datalen=%ld step=%u\n", (int)c->kind, c->rate, c->channels,
+            c->wav_align, c->wav_bits, c->wav_data_len, (unsigned)c->step);
+#endif
     }
 
     ch_set_name(c, name);
@@ -446,16 +463,64 @@ static bool ch_frame(garlic_mp3_channel *c, int16_t *l, int16_t *r)
     return ch_frame_mp3(c, l, r);
 }
 
-static inline int16_t hermite(float t, int16_t p0, int16_t p1,
-    int16_t p2, int16_t p3)
+/* Build the polyphase kernel for the current step. A Blackman-windowed sinc
+ * rejects the images a cubic interpolator leaves behind (a 12 kHz test tone
+ * imaged at -21 dB with Catmull-Rom); the table is per play, not per sample. */
+static bool ch_build_resampler(garlic_mp3_channel *c)
 {
-    float a = -0.5f * p0 + 1.5f * p1 - 1.5f * p2 + 0.5f * p3;
-    float b = p0 - 2.5f * p1 + 2.0f * p2 - 0.5f * p3;
-    float c = -0.5f * p0 + 0.5f * p2;
-    float v = ((a * t + b) * t + c) * t + p1;
-    if (v > 32767.0f) v = 32767.0f;
-    if (v < -32768.0f) v = -32768.0f;
-    return (int16_t)v;
+    const int taps = GARLIC_AUDIO_RES_TAPS;
+    const int phases = GARLIC_AUDIO_RES_PHASES;
+    const int half = taps / 2;
+    if (c->res_tab && c->res_step == c->step) return true;
+    if (!c->res_tab) {
+        c->res_tab = (int16_t *)malloc((size_t)phases * taps * sizeof(int16_t));
+        if (!c->res_tab) return false;
+    }
+
+    for (int p = 0; p < phases; ++p) {
+        double t = ((double)p + 0.5) / (double)phases;
+        double coef[GARLIC_AUDIO_RES_TAPS];
+        double sum = 0;
+        for (int k = 0; k < taps; ++k) {
+            /* The kernel is centred taps/2-1 samples into the window, so
+             * half of it looks at future samples (latency taps/2 samples). */
+            double d = (double)k - (double)(taps / 2 - 1) - t;
+            double v = 0;
+            if (fabs(d) < (double)half) {
+                double x = d * 3.14159265358979323846;
+                double sinc = (fabs(d) < 1e-9) ? 1.0 : sin(x) / x;
+                double w = 0.42 + 0.5 * cos(3.14159265358979323846 * d / half)
+                    + 0.08 * cos(2.0 * 3.14159265358979323846 * d / half);
+                v = sinc * w;
+            }
+            coef[k] = v;
+            sum += v;
+        }
+        if (sum == 0) sum = 1;
+        /* Scale to 32767 (not 32768) so a delta phase cannot overflow int16. */
+        int32_t acc = 0;
+        for (int k = 0; k < taps; ++k) {
+            int32_t q = (int32_t)lrint(coef[k] / sum * 32767.0);
+            if (q > 32767) q = 32767;
+            if (q < -32767) q = -32767;
+            c->res_tab[p * taps + k] = (int16_t)q;
+            acc += q;
+        }
+        /* Absorb the rounding remainder in the centre tap so DC stays unity. */
+        int32_t centre = c->res_tab[p * taps + taps / 2] + (32767 - acc);
+        if (centre > 32767) centre = 32767;
+        if (centre < -32767) centre = -32767;
+        c->res_tab[p * taps + taps / 2] = (int16_t)centre;
+    }
+#ifdef GARLIC_AUDIO_DEBUG
+    for (int p = 0; p < phases; p += 64) {
+        fprintf(stderr, "KERNEL p=%d:", p);
+        for (int k = 0; k < taps; ++k) fprintf(stderr, " %d", c->res_tab[p*taps+k]);
+        fprintf(stderr, "\n");
+    }
+#endif
+    c->res_step = c->step;
+    return true;
 }
 
 /* Restart a looping stream without dropping a frame: repeat the last sample
@@ -467,8 +532,11 @@ static bool ch_loop_restart(garlic_mp3_channel *c)
     c->pcm_frames = c->pcm_cur = 0;
     c->eof = false;
     c->tried_reload = false;
-    c->fade = c->fade_len;
-    return ch_frame(c, &c->win[3][0], &c->win[3][1]);
+    c->fade = 0;
+    for (int i = 0; i < GARLIC_AUDIO_RES_TAPS; ++i) {
+        if (!ch_frame(c, &c->win[i][0], &c->win[i][1])) return false;
+    }
+    return true;
 }
 
 static void ch_mix(garlic_mp3_channel *c, int32_t *out, size_t frames)
@@ -477,36 +545,51 @@ static void ch_mix(garlic_mp3_channel *c, int32_t *out, size_t frames)
     if (!c->active) return;
 
     if (!c->primed) {
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < GARLIC_AUDIO_RES_TAPS; ++i) {
             if (!ch_frame(c, &c->win[i][0], &c->win[i][1])) {
                 if (!c->loop || !ch_loop_restart(c)) { c->active = false; return; }
             }
         }
         c->primed = true;
-        c->fade = c->fade_len = (uint32_t)(GARLIC_AUDIO_OUT_RATE * 0.004f);
+        c->fade_len = (uint32_t)(GARLIC_AUDIO_OUT_RATE * 0.004f);
         c->fade = 0;
     }
 
+    const int16_t *tab = c->res_tab;
     while (produced < frames) {
-        float t = (float)c->frac / 65536.0f;
-        float gain = c->volume;
+        int gain_q = (int)(c->volume * 4096.0f);
         if (c->fade < c->fade_len && c->fade_len)
-            gain *= (float)c->fade / (float)c->fade_len;
+            gain_q = gain_q * (int)c->fade / (int)c->fade_len;
 
-        out[produced * 2] += (int32_t)(hermite(t, c->win[0][0], c->win[1][0],
-            c->win[2][0], c->win[3][0]) * gain);
-        out[produced * 2 + 1] += (int32_t)(hermite(t, c->win[0][1], c->win[1][1],
-            c->win[2][1], c->win[3][1]) * gain);
+        /* Interpolate between two table phases with the leftover fraction, so
+         * the 1024-entry table does not quantise the delay. */
+        size_t ph = (size_t)(c->frac >> GARLIC_AUDIO_RES_SHIFT);
+        size_t ph2 = ph + 1 < GARLIC_AUDIO_RES_PHASES ? ph + 1 : 0;
+        int sub = (int)(c->frac & ((1u << GARLIC_AUDIO_RES_SHIFT) - 1u));
+        const int16_t *c0 = tab + ph * GARLIC_AUDIO_RES_TAPS;
+        const int16_t *c1 = tab + ph2 * GARLIC_AUDIO_RES_TAPS;
+        int32_t l = 0, r = 0;
+        for (int k = 0; k < GARLIC_AUDIO_RES_TAPS; ++k) {
+            int32_t cl = c0[k]
+                + (((c1[k] - c0[k]) * sub) >> GARLIC_AUDIO_RES_SHIFT);
+            l += (int32_t)c->win[k][0] * cl;
+            r += (int32_t)c->win[k][1] * cl;
+        }
+        /* Q15 kernel, then the Q12 volume, back into int16 range. */
+        out[produced * 2] += (int32_t)((l >> 15) * gain_q >> 12);
+        out[produced * 2 + 1] += (int32_t)((r >> 15) * gain_q >> 12);
 
         produced++;
         if (c->fade < c->fade_len) c->fade++;
         c->frac += c->step;
         while (c->frac >= 65536u) {
             c->frac -= 65536u;
-            c->win[0][0] = c->win[1][0]; c->win[0][1] = c->win[1][1];
-            c->win[1][0] = c->win[2][0]; c->win[1][1] = c->win[2][1];
-            c->win[2][0] = c->win[3][0]; c->win[2][1] = c->win[3][1];
-            if (!ch_frame(c, &c->win[3][0], &c->win[3][1])) {
+            for (int k = 1; k < GARLIC_AUDIO_RES_TAPS; ++k) {
+                c->win[k - 1][0] = c->win[k][0];
+                c->win[k - 1][1] = c->win[k][1];
+            }
+            if (!ch_frame(c, &c->win[GARLIC_AUDIO_RES_TAPS - 1][0],
+                    &c->win[GARLIC_AUDIO_RES_TAPS - 1][1])) {
                 if (!c->loop || !ch_loop_restart(c)) { c->active = false; break; }
             }
         }
@@ -536,10 +619,12 @@ void cpymo_audio_copy_mixed_samples(void *dst, size_t len, cpymo_audio_system *s
              * soft knee bends the peaks instead of clipping them. */
             float x = (float)chunk[i] / 32768.0f;
             float ax = fabsf(x);
+#ifndef GARLIC_AUDIO_NO_LIMIT
             if (ax > 0.72f) {
                 ax = 0.72f + 0.28f * (1.0f - expf(-(ax - 0.72f) / 0.28f));
                 x = x < 0 ? -ax : ax;
             }
+#endif
             out[done * 2 + i] = (int16_t)(x * 32767.0f);
         }
         done += n;

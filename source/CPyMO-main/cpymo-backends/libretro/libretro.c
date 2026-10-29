@@ -1084,8 +1084,11 @@ static void input_update(void)
     if (JOY(START))  b |= GARLIC_BUTTON_START;
     if (JOY(SELECT)) b |= GARLIC_BUTTON_SELECT;
 #undef JOY
-    bool choice = engine.select_img.selections != NULL;
-    garlic_actions a = garlic_map_buttons(b, cpymo_ui_enabled(&engine), choice);
+    bool picking = engine.select_img.selections != NULL;
+    bool script_menu = picking && !engine.select_img.save_enabled;
+    bool pick_a_slot = picking && engine.select_img.save_enabled;
+    garlic_actions a = garlic_map_buttons(b, cpymo_ui_enabled(&engine),
+        script_menu, pick_a_slot);
     uint32_t pressed = b & ~garlic_prev_buttons;
     a.quick_save = (pressed & GARLIC_BUTTON_START) != 0;
     a.quick_load = (pressed & GARLIC_BUTTON_SELECT) != 0;
@@ -1095,7 +1098,7 @@ static void input_update(void)
 #ifdef GARLIC_UI_DEBUG
     if (polls_dbg++ % 20 == 0)
         fprintf(stderr, "DBG poll ui=%d choice=%d say=%d cancel=%d ok=%d\n",
-            (int)cpymo_ui_enabled(&engine), (int)choice,
+            (int)cpymo_ui_enabled(&engine), (int)script_menu,
             (int)engine.say.active, (int)input.cancel, (int)input.ok);
 #endif
     input.up = a.up;
