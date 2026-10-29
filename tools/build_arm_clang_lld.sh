@@ -43,12 +43,15 @@ mkdir -p "$BUILD"
 rm -f "$BUILD/cpymo_libretro.so" "$BUILD/BUILD_PROVENANCE.txt"
 FLAGS=(--target=armv7-unknown-linux-gnueabi --sysroot="$(native_path "$SYSROOT")"
        -mcpu=cortex-a9 "${FPU_FLAGS[@]}" -O2 -DNDEBUG -fPIC -std=gnu11
-       -DTEXT_CHARACTER_W_SCALE=1 -DDISABLE_AUDIO -DDISABLE_MOVIE
-       -DGARLIC_NO_FFMPEG -Wall -Werror=implicit-function-declaration)
+       -DTEXT_CHARACTER_W_SCALE=1 -DDISABLE_MOVIE
+       -DDISABLE_FFMPEG_AUDIO -DGARLIC_NO_FFMPEG
+       -DGARLIC_MP3_AUDIO ${EXTRA_DEFS:-} -Wall
+       -Werror=implicit-function-declaration)
 
 sources() {
     printf '%s\n' \
        "$SRC/cpymo-backends/libretro/libretro.c" \
+       "$SRC/cpymo-backends/libretro/cpymo_audio_mp3.c" \
        "$SRC/cpymo-backends/garlicos/garlic_adapter.c" \
        "$SRC/cpymo-backends/garlicos/garlic_paths.c" \
        "$SRC/cpymo-backends/software/cpymo_backend_image.c" \
