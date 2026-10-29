@@ -16,6 +16,13 @@
 #define TEXT_CHARACTER_W_SCALE 4
 #endif
 
+/* Glyphs may reach above the ascent (pixel fonts with a tight em box draw up
+ * to the em edge, symbols above it), which makes baseline + y0 negative and
+ * wrote before the bitmap. Reserve a few rows at the top instead. */
+#ifndef TEXT_TOP_PAD
+#define TEXT_TOP_PAD 8
+#endif
+
 extern cpymo_backend_software_context 
     *cpymo_backend_software_cur_context;
 
@@ -23,7 +30,7 @@ static void cpymo_backend_text_render(
     void *out_or_null, 
     int *w, int *h, 
     cpymo_str text, 
-    float scale, float baseline) 
+    float scale, float baseline, int pad_top) 
 {
     stbtt_fontinfo *font = cpymo_backend_software_cur_context->font;
 	float xpos = 0;
@@ -50,7 +57,7 @@ static void cpymo_backend_text_render(
 		if (out_or_null)
 			stbtt_MakeCodepointBitmapSubpixel(
 				font,
-				(unsigned char *)out_or_null + (int)xpos + x0 + (int)(baseline + y0 + y_base) * *w,
+				(unsigned char *)out_or_null + (int)xpos + x0 + (pad_top + (int)(baseline + y0 + y_base)) * *w,
 				x1 - x0, y1 - y0, *w, scale, scale, x_shift, 0, (int)codepoint);
 
 		xpos += (advance_width * scale);
@@ -69,7 +76,7 @@ static void cpymo_backend_text_render(
 	}
 
 	*w = width;
-	*h = height;
+	*h = height + pad_top;
 }
 
 typedef struct {
@@ -101,7 +108,7 @@ error_t cpymo_backend_text_create(
     float baseline = scale * ascent;
 
     int w, h;
-    cpymo_backend_text_render(NULL, &w, &h, utf8_string, scale, baseline);
+    cpymo_backend_text_render(NULL, &w, &h, utf8_string, scale, baseline, TEXT_TOP_PAD);
     h += 4; // magic
 
     cpymo_backend_text_impl *o = (cpymo_backend_text_impl *)malloc(sizeof(cpymo_backend_text_impl) + w * h);
@@ -110,7 +117,7 @@ error_t cpymo_backend_text_create(
     o->w = (uint16_t)w;
     o->h = (uint16_t)h;
     *out_width = cpymo_backend_text_width(utf8_string, single_character_size_in_logical_screen);
-    cpymo_backend_text_render(o->px, &w, &h, utf8_string, scale, baseline);
+    cpymo_backend_text_render(o->px, &w, &h, utf8_string, scale, baseline, TEXT_TOP_PAD);
     *out = o;
 
     scale = stbtt_ScaleForPixelHeight(font, single_character_size_in_logical_screen);
@@ -209,7 +216,7 @@ float cpymo_backend_text_width(
     stbtt_GetFontVMetrics(font, &ascent, NULL, NULL);
     float baseline = scale * ascent;
     int w, h;
-    cpymo_backend_text_render(NULL, &w, &h, s, scale, baseline);
+    cpymo_backend_text_render(NULL, &w, &h, s, scale, baseline, TEXT_TOP_PAD);
 
     return TEXT_CHARACTER_W_SCALE * (float)w / win_w * game_w;
 }
