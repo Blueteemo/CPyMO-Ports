@@ -583,13 +583,50 @@ void retro_unload_game(void);
 /* the screen: one canvas, re-sized per game, and one loader for both   */
 /* ------------------------------------------------------------------ */
 
-/* Make the render target (and the RGB565 output) exactly w x h. Called for
- * the menu (the OUTPUT size) and again for every chosen game (its OWN logical
- * size), so the two screens cannot disagree about what "the canvas" is. */
-static bool garlic_apply_canvas(size_t w, size_t h)
+
+
+/* Render-scale: rasterise the game this many times larger than the game's own
+ * logical resolution and hand the frontend an exact 1:1 copy. At 1 the canvas
+ * IS the game resolution, so 16px text is rasterised at 16px and the blit
+ * doubles it afterwards; at 2 the same text is rasterised at 32px while the
+ * logical coordinates, the image geometry and the line breaking stay exactly
+ * as they are. The menu always renders at 1: it already draws at the output
+ * size. CPYMO_RENDER_SCALE is read once per load and clamped to 1..2, so 1
+ * keeps the historical, pixel-exact behaviour. */
+static unsigned garlic_render_scale = 1;
+
+/* The useful factor is the one that lands ON the output raster, not above it:
+ * at 2 a 320x240 game becomes exactly 640x480 and the blit turns into a 1:1
+ * copy, while a game that is already 640x480 (or larger, e.g. 800x600) would
+ * have to be scaled back down again and keeps 1. */
+static unsigned garlic_effective_render_scale(size_t w, size_t h)
 {
-    if (w == 0 || h == 0 || w > 2048 || h > 2048) return false;
-    if (soft_image.pixels && soft_image.w == w && soft_image.h == h) {
+    unsigned s = garlic_render_scale;
+    while (s > 1 && (w * s > GARLIC_OUTPUT_WIDTH || h * s > GARLIC_OUTPUT_HEIGHT))
+        --s;
+    return s;
+}
+
+static void garlic_read_render_scale(void)
+{
+    const char *s = getenv("CPYMO_RENDER_SCALE");
+    int v = s ? atoi(s) : 1;
+    if (v < 1) v = 1;
+    if (v > 2) v = 2;
+    garlic_render_scale = (unsigned)v;
+}
+
+/* Make the render target exactly w*scale x h*scale while the LOGICAL screen
+ * stays w x h, so every draw keeps its game-resolution coordinates and sizes
+ * and only the rasterisation gets finer. Called for the menu (the OUTPUT size,
+ * scale 1) and again for every chosen game (its OWN logical size). */
+static bool garlic_apply_canvas_scaled(size_t w, size_t h, unsigned scale)
+{
+    size_t rw = w * scale, rh = h * scale;
+    if (w == 0 || h == 0 || rw == 0 || rh == 0 || rw > 2048 || rh > 2048)
+        return false;
+
+    if (soft_image.pixels && soft_image.w == rw && soft_image.h == rh) {
         soft_context.render_target = &soft_image;
         soft_context.logical_screen_w = (float)w;
         soft_context.logical_screen_h = (float)h;
@@ -598,13 +635,13 @@ static bool garlic_apply_canvas(size_t w, size_t h)
         return true;
     }
 
-    uint8_t *pixels = (uint8_t *)calloc(h, w * 4);
+    uint8_t *pixels = (uint8_t *)calloc(rh, rw * 4);
     if (!pixels) return false;
     if (soft_image.pixels) free(soft_image.pixels);
     soft_image.pixels = pixels;
-    soft_image.w = w;
-    soft_image.h = h;
-    soft_image.line_stride = w * 4;
+    soft_image.w = rw;
+    soft_image.h = rh;
+    soft_image.line_stride = rw * 4;
     soft_image.pixel_stride = 4;
     soft_image.r_offset = 2;
     soft_image.g_offset = 1;
@@ -624,6 +661,12 @@ static bool garlic_apply_canvas(size_t w, size_t h)
     soft_context.scale_on_load_image = false;
     cpymo_backend_software_set_context(&soft_context);
     return true;
+}
+
+/* The menu draws at the output size, so its render scale is always 1. */
+static bool garlic_apply_canvas(size_t w, size_t h)
+{
+    return garlic_apply_canvas_scaled(w, h, 1);
 }
 
 /* The per-game half of the platform work: the engine has already been
@@ -646,8 +689,11 @@ static error_t garlic_after_game_selected(const char *gamedir)
                cpymo_error_message(err));
         return err;
     }
-    if (!garlic_apply_canvas(engine.gameconfig.imagesize_w,
-                             engine.gameconfig.imagesize_h)) {
+    unsigned render_scale = garlic_effective_render_scale(
+        engine.gameconfig.imagesize_w, engine.gameconfig.imagesize_h);
+    if (!garlic_apply_canvas_scaled(engine.gameconfig.imagesize_w,
+                                    engine.gameconfig.imagesize_h,
+                                    render_scale)) {
         log_cb(RETRO_LOG_ERROR, "invalid or excessive game canvas size: %ux%u\n",
                (unsigned)engine.gameconfig.imagesize_w,
                (unsigned)engine.gameconfig.imagesize_h);
@@ -656,9 +702,9 @@ static error_t garlic_after_game_selected(const char *gamedir)
     snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", gamedir);
     garlic_screen = GARLIC_SCREEN_GAME;
     garlic_first_frame = true;
-    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u\n", gamedir,
-           (unsigned)engine.gameconfig.imagesize_w,
-           (unsigned)engine.gameconfig.imagesize_h);
+    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u render_scale=%u\n",
+           gamedir, (unsigned)engine.gameconfig.imagesize_w,
+           (unsigned)engine.gameconfig.imagesize_h, render_scale);
     return CPYMO_ERR_SUCC;
 }
 
@@ -765,6 +811,8 @@ bool retro_load_game(const struct retro_game_info *game)
         retro_unload_game();
     if (!game || !game->path || !garlic_pixel_format_supported)
         return false;
+
+    garlic_read_render_scale();
 
     struct stat sb;
     if (stat(game->path, &sb) != 0) {
@@ -879,8 +927,11 @@ bool retro_load_game(const struct retro_game_info *game)
             goto fail;
         }
     }
-    if (!garlic_apply_canvas(engine.gameconfig.imagesize_w,
-                             engine.gameconfig.imagesize_h)) {
+    unsigned render_scale = garlic_effective_render_scale(
+        engine.gameconfig.imagesize_w, engine.gameconfig.imagesize_h);
+    if (!garlic_apply_canvas_scaled(engine.gameconfig.imagesize_w,
+                                    engine.gameconfig.imagesize_h,
+                                    render_scale)) {
         log_cb(RETRO_LOG_ERROR, "invalid or excessive game canvas size\n");
         goto fail;
     }
@@ -889,9 +940,9 @@ bool retro_load_game(const struct retro_game_info *game)
     garlic_screen = GARLIC_SCREEN_GAME;
     snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", gamedir);
     garlic_prof_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u (direct)\n", gamedir,
-           (unsigned)engine.gameconfig.imagesize_w,
-           (unsigned)engine.gameconfig.imagesize_h);
+    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u render_scale=%u (direct)\n",
+           gamedir, (unsigned)engine.gameconfig.imagesize_w,
+           (unsigned)engine.gameconfig.imagesize_h, render_scale);
     garlic_load_report(gamedir, CPYMO_ERR_SUCC, tick_font - tick_engine,
                       tick_font_done - tick_font,
                       garlic_micros() - tick_font_done);
