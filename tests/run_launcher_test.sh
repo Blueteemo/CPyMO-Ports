@@ -142,6 +142,19 @@ if [ "$rc" = "45" ]; then echo "  ok    an ambiguous launch exits 45"; else
 check "the candidates are listed" "candidates:" "$WORK/g.err"
 check "the first candidate is a real game" "$APPS/GameOne" "$WORK/g.err"
 
+echo '== 7d. packaged layout: <launcher name>/games wins over a sibling game'
+APPS2="$WORK/APPS2"
+mkdir -p "$APPS2/CPyMO/games/OnlyGame" "$APPS2/Sibling"
+printf 'gametitle,O\nimagesize,320,240\n' > "$APPS2/CPyMO/games/OnlyGame/gameconfig.txt"
+printf 'gametitle,S\nimagesize,320,240\n' > "$APPS2/Sibling/gameconfig.txt"
+cp "$ROOT/deploy/Roms/APPS/CPyMO.sh" "$APPS2/CPyMO.sh"
+: > "$APPS2/CPyMO/cpymo_libretro.so"
+chmod +x "$APPS2/CPyMO.sh"
+CPYMO_LOG="$WORK/g1.log" "$APPS2/CPyMO.sh" >/dev/null 2>&1
+check    "a lone game in games/ still opens the selector" "/CPyMO/games" "$WORK/g1.log"
+check    "and it is the selector, not a direct launch" "stage=launching_game_selector" "$WORK/g1.log"
+check_not "the sibling game is not picked" "/Sibling" "$WORK/g1.log"
+
 echo '== 8. failure paths are explicit, and distinct'
 mv "$APPS/GameOne/gameconfig.txt" "$APPS/GameOne/gameconfig.bak"
 set +e

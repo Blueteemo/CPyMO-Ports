@@ -52,6 +52,18 @@ fi
 # --- which game -----------------------------------------------------
 GAME="${1:-${CPYMO_GAME:-}}"
 MENU="${CPYMO_MENU:-1}"
+# Packaged layout: the games live in <this script's own folder>/games. That
+# keeps ONE entry in the APPS menu, ONE core instance, and game data apart from
+# the engine. A game there opens the selector even when it is the only one.
+# Games dropped directly into APPS keep working exactly as before.
+if [ -z "$GAME" ] && [ "$MENU" != 0 ] && [ -d "$APPDIR/$SELF/games" ]; then
+    for candidate in "$APPDIR/$SELF/games"/*/; do
+        if [ -f "$candidate/gameconfig.txt" ]; then
+            GAME="$APPDIR/$SELF/games"
+            break
+        fi
+    done
+fi
 # A games-root explicitly supplied as an argument should open the selector;
 # it is not a malformed game merely because it lacks gameconfig.txt.
 if [ -n "$GAME" ] && [ "$MENU" != 0 ] && [ -d "$GAME" ] \
