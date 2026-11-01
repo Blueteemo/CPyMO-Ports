@@ -17,6 +17,7 @@
 
 #include "../../cpymo/cpymo_engine.h"
 #include "../../cpymo/cpymo_game_selector.h"
+#include "../../cpymo/cpymo_config_ui.h"
 #include "../../cpymo/cpymo_save.h"
 #include "../../endianness.h/endianness.h"
 #include "../software/cpymo_backend_software.h"
@@ -50,6 +51,10 @@ static retro_environment_t             environ_cb;
 static cpymo_engine                    engine;
 static cpymo_backend_software_image    soft_image;
 static uint16_t                      *garlic_rgb565_frame = NULL;
+/* Text is rasterised at output resolution and composited here after the
+ * canvas blit, so glyphs are never nearest-neighbour upscaled. */
+static uint32_t                      *garlic_text_layer = NULL;
+static void garlic_text_layer_configure(void);
 static bool                           garlic_first_frame = false;
 static bool                           garlic_pixel_format_supported = false;
 static bool                           garlic_engine_ready = false;
@@ -643,6 +648,7 @@ static bool garlic_apply_canvas_scaled(size_t w, size_t h, unsigned scale)
         soft_context.logical_screen_h = (float)h;
         soft_context.font = &font;
         cpymo_backend_software_set_context(&soft_context);
+        garlic_text_layer_configure();
         return true;
     }
 
@@ -671,18 +677,110 @@ static bool garlic_apply_canvas_scaled(size_t w, size_t h, unsigned scale)
     soft_context.logical_screen_h = (float)h;
     soft_context.scale_on_load_image = false;
     cpymo_backend_software_set_context(&soft_context);
+    garlic_text_layer_configure();
     return true;
 }
 
-/* The menu draws at the output size, so its render scale is always 1. */
-static bool garlic_apply_canvas(size_t w, size_t h)
+/* Point the text layer at this canvas: identity for an output-sized canvas,
+ * otherwise the same viewport the blit will use. */
+static void garlic_text_layer_configure(void)
 {
-    return garlic_apply_canvas_scaled(w, h, 1);
+    soft_context.text_layer = false;
+    if (!garlic_text_layer)
+        garlic_text_layer = (uint32_t *)calloc(
+            (size_t)GARLIC_OUTPUT_WIDTH * GARLIC_OUTPUT_HEIGHT, sizeof(uint32_t));
+    if (!garlic_text_layer) return;
+
+    garlic_viewport v;
+    if (!garlic_compute_viewport((int)soft_image.w, (int)soft_image.h,
+            GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT, &v))
+        return;
+
+    soft_context.text_layer = true;
+    soft_context.text_layer_px = garlic_text_layer;
+    soft_context.text_layer_w = GARLIC_OUTPUT_WIDTH;
+    soft_context.text_layer_h = GARLIC_OUTPUT_HEIGHT;
+    soft_context.text_scale = (float)v.h / (float)soft_image.h;
+    soft_context.text_off_x = v.x;
+    soft_context.text_off_y = v.y;
+    soft_context.text_dirty_y0 = GARLIC_OUTPUT_HEIGHT;
+    soft_context.text_dirty_y1 = 0;
 }
 
-/* The per-game half of the platform work: the engine has already been
- * re-initialised for `gamedir` by the selector / plain loader, so this brings
- * the CWD, the save directory, the font and the canvas along. */
+/* Blend the text layer onto the finished RGB565 frame and clear the pixels
+ * that were touched in the same pass. Straight alpha, source-over. No integer
+ * divisions: the Cortex-A9 has no hardware divider, so 5/6-bit expansion comes
+ * from two tables and the divide by 255 becomes a shift. */
+static void garlic_text_layer_composite(uint16_t *frame)
+{
+    static uint8_t e5[32], e6[64];
+    static bool e5_ready = false;
+    int y0 = soft_context.text_dirty_y0, y1 = soft_context.text_dirty_y1;
+    if (!soft_context.text_layer || y1 <= y0) return;
+    if (y0 < 0) y0 = 0;
+    if (y1 > GARLIC_OUTPUT_HEIGHT) y1 = GARLIC_OUTPUT_HEIGHT;
+    if (!e5_ready) {
+        for (int i = 0; i < 32; ++i) e5[i] = (uint8_t)((i << 3) | (i >> 2));
+        for (int i = 0; i < 64; ++i) e6[i] = (uint8_t)((i << 2) | (i >> 4));
+        e5_ready = true;
+    }
+
+    for (int y = y0; y < y1; ++y) {
+        uint32_t *src = garlic_text_layer + (size_t)y * GARLIC_OUTPUT_WIDTH;
+        uint16_t *dst = frame + (size_t)y * GARLIC_OUTPUT_WIDTH;
+        for (int x = 0; x < GARLIC_OUTPUT_WIDTH; ++x) {
+            uint32_t px = src[x];
+            uint32_t a = px >> 24;
+            if (!a) continue;
+            src[x] = 0;
+            uint32_t k = 255u - a;
+            uint16_t d = dst[x];
+            uint32_t r = ((px & 0xff) * a + e5[(d >> 11) & 0x1f] * k) >> 8;
+            uint32_t g = (((px >> 8) & 0xff) * a + e6[(d >> 5) & 0x3f] * k) >> 8;
+            uint32_t b = (((px >> 16) & 0xff) * a + e5[d & 0x1f] * k) >> 8;
+            dst[x] = (uint16_t)(((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3));
+        }
+    }
+    soft_context.text_dirty_y0 = GARLIC_OUTPUT_HEIGHT;
+    soft_context.text_dirty_y1 = 0;
+}
+
+void retro_set_controller_port_device(unsigned port, unsigned device)
+{
+}
+
+void retro_deinit(void)
+{
+    if (garlic_game_loaded || garlic_engine_ready || garlic_directory_changed)
+        retro_unload_game();
+}
+
+void retro_reset(void)
+{
+}
+
+/* One-shot, load-time report. The 10.19 device log had one redraw costing
+ * 235 ms at the opening and 259 ms on a background switch, against ~73 ms in
+ * the steady menu, and none of the ordinary counters could say WHERE inside
+ * the load that went. This prints the stage boundaries of the game that was
+ * just loaded, once, so a slow asset becomes visible instead of inferred. */
+static void garlic_load_report(const char *gamedir, error_t err,
+                            uint64_t engine_us, uint64_t font_us,
+                            uint64_t alloc_us)
+{
+    uint64_t total = garlic_load_begin ? garlic_micros() - garlic_load_begin : 0;
+    log_cb(RETRO_LOG_INFO,
+           "CPYMO_LOAD gamedir=%s ok=%d total_us=%llu engine_us=%llu "
+           "font_us=%llu alloc_us=%llu canvas=%ux%u\n",
+           gamedir, err == CPYMO_ERR_SUCC ? 1 : 0,
+           (unsigned long long)total,
+           (unsigned long long)engine_us,
+           (unsigned long long)font_us,
+           (unsigned long long)alloc_us,
+           (unsigned)engine.gameconfig.imagesize_w,
+           (unsigned)engine.gameconfig.imagesize_h);
+}
+
 static error_t garlic_after_game_selected(const char *gamedir)
 {
     if (chdir(gamedir) != 0) {
@@ -713,9 +811,9 @@ static error_t garlic_after_game_selected(const char *gamedir)
     snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", gamedir);
     garlic_screen = GARLIC_SCREEN_GAME;
     garlic_first_frame = true;
-    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u render_scale=%u\n",
-           gamedir, (unsigned)engine.gameconfig.imagesize_w,
-           (unsigned)engine.gameconfig.imagesize_h, render_scale);
+    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u\n", gamedir,
+           (unsigned)engine.gameconfig.imagesize_w,
+           (unsigned)engine.gameconfig.imagesize_h);
     return CPYMO_ERR_SUCC;
 }
 
@@ -766,7 +864,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
         tail = item;
     }
 
-    if (!garlic_apply_canvas(GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT)) {
+    if (!garlic_apply_canvas_scaled(GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT, 1)) {
         cpymo_game_selector_item_free_all(items);
         return false;
     }
@@ -822,8 +920,6 @@ bool retro_load_game(const struct retro_game_info *game)
         retro_unload_game();
     if (!game || !game->path || !garlic_pixel_format_supported)
         return false;
-
-    garlic_read_render_scale();
 
     struct stat sb;
     if (stat(game->path, &sb) != 0) {
@@ -951,8 +1047,10 @@ bool retro_load_game(const struct retro_game_info *game)
     garlic_screen = GARLIC_SCREEN_GAME;
     snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", gamedir);
     garlic_prof_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u render_scale=%u (direct)\n",
-           gamedir, (unsigned)engine.gameconfig.imagesize_w,
+    if (getenv("CPYMO_START_CONFIG")) cpymo_config_ui_enter(&engine);
+    log_cb(RETRO_LOG_INFO,
+           "CPYMO_SELECT game=%s canvas=%ux%u render_scale=%u (direct)\n", gamedir,
+           (unsigned)engine.gameconfig.imagesize_w,
            (unsigned)engine.gameconfig.imagesize_h, render_scale);
     garlic_load_report(gamedir, CPYMO_ERR_SUCC, tick_font - tick_engine,
                       tick_font_done - tick_font,
@@ -962,42 +1060,6 @@ bool retro_load_game(const struct retro_game_info *game)
 fail:
     retro_unload_game();
     return false;
-}
-
-void retro_set_controller_port_device(unsigned port, unsigned device)
-{
-}
-
-void retro_deinit(void)
-{
-    if (garlic_game_loaded || garlic_engine_ready || garlic_directory_changed)
-        retro_unload_game();
-}
-
-void retro_reset(void)
-{
-}
-
-/* One-shot, load-time report. The 10.19 device log had one redraw costing
- * 235 ms at the opening and 259 ms on a background switch, against ~73 ms in
- * the steady menu, and none of the ordinary counters could say WHERE inside
- * the load that went. This prints the stage boundaries of the game that was
- * just loaded, once, so a slow asset becomes visible instead of inferred. */
-static void garlic_load_report(const char *gamedir, error_t err,
-                            uint64_t engine_us, uint64_t font_us,
-                            uint64_t alloc_us)
-{
-    uint64_t total = garlic_load_begin ? garlic_micros() - garlic_load_begin : 0;
-    log_cb(RETRO_LOG_INFO,
-           "CPYMO_LOAD gamedir=%s ok=%d total_us=%llu engine_us=%llu "
-           "font_us=%llu alloc_us=%llu canvas=%ux%u\n",
-           gamedir, err == CPYMO_ERR_SUCC ? 1 : 0,
-           (unsigned long long)total,
-           (unsigned long long)engine_us,
-           (unsigned long long)font_us,
-           (unsigned long long)alloc_us,
-           (unsigned)engine.gameconfig.imagesize_w,
-           (unsigned)engine.gameconfig.imagesize_h);
 }
 
 static void garlic_toast_clear(void)
@@ -1152,6 +1214,7 @@ void retro_run(void)
             environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
             return;
         }
+        garlic_text_layer_composite(garlic_rgb565_frame);
         garlic_toast_draw();
         garlic_prof_convert_us += garlic_micros() - after_draw;
         garlic_first_frame = false;

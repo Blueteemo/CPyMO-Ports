@@ -36,6 +36,18 @@ typedef struct {
     // render target will not write to alpha channel.
 
     stbtt_fontinfo *font;
+
+    /* Optional output-resolution text layer. When `text_layer` is set, text is
+     * rasterised at the on-screen scale and composited after the hardware-like
+     * blit, so glyphs are never resampled (540x360 games would otherwise be
+     * upscaled 1.185x with nearest neighbour and look chunky). Images keep
+     * using render_target at the canvas size. */
+    bool text_layer;
+    uint32_t *text_layer_px;      /* 0xAABBGGRR, straight alpha */
+    int text_layer_w, text_layer_h;
+    float text_scale;             /* canvas -> output pixels */
+    int text_off_x, text_off_y;   /* letterbox origin */
+    int text_dirty_y0, text_dirty_y1;
 } cpymo_backend_software_context;
 
 void cpymo_backend_software_set_context(
