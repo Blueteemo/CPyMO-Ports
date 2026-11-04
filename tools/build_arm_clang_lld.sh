@@ -59,7 +59,9 @@ sources() {
        "$SRC/cpymo-backends/software/cpymo_backend_software.c" \
        "$SRC/cpymo-backends/software/cpymo_backend_text.c" \
        "$SRC/cpymo-backends/software/cpymo_backend_masktrans.c"
-    find "$SRC/cpymo" -maxdepth 1 -name '*.c' -type f | sort
+    # `._name.c` are AppleDouble sidecars that macOS tar/zip create next to the
+    # real files; compiling them fails ("source file is not valid UTF-8").
+    find "$SRC/cpymo" -maxdepth 1 -name '*.c' -type f ! -name '._*' | sort
 }
 
 printf 'building RG35XX original: mode=%s\ncompiler=%s\nsysroot=%s\n' "$MODE" "$CLANG" "$SYSROOT"
