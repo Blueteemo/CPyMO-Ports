@@ -735,6 +735,9 @@ error_t cpymo_config_ui_enter(cpymo_engine *e)
 		CONFIG_ITEMS);
 	CPYMO_THROW(err);
 
+    ui->save_pending = false;
+    ui->save_delay = 0;
+
 	ui->dec_btn = NULL;
 	ui->dec_btn_w = 0;
 	ui->inc_btn = NULL;
