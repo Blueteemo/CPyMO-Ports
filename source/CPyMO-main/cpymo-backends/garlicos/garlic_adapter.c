@@ -11,21 +11,17 @@ garlic_actions garlic_map_buttons(uint32_t b, bool ui, bool script_menu,
     a.down = (b & GARLIC_BUTTON_DOWN) != 0;
     a.left = (b & GARLIC_BUTTON_LEFT) != 0;
     a.right = (b & GARLIC_BUTTON_RIGHT) != 0;
-    a.ok = (b & GARLIC_BUTTON_A) != 0;
-    /* Verbatim NDS rule: in.ok = A; in.cancel = (ui || script_menu) ? B : X;
-     * in.hide_window = !ui && !select_img.selections && B.
-     * So B backs out of every real UI and of script menus, X opens the menu
-     * from the story, and B hides the window only while reading text.
-     * A save-slot picker is a selection, not a script menu: cancel is ignored
-     * there by the engine, and B must not hide the window either. */
-    a.cancel = (b & (ui || script_menu ? GARLIC_BUTTON_B : GARLIC_BUTTON_X)) != 0;
-    a.skip = (b & GARLIC_BUTTON_R) != 0;
-    a.hide_window = !ui && !script_menu && !pick_a_slot && (b & GARLIC_BUTTON_B) != 0;
-    /* NDS: START quick-saves slot 1, SELECT quick-loads slot 1. The NDS has no
-     * spare key for auto play (it lives in the menu); Y takes it here. */
-    a.quick_save = (b & GARLIC_BUTTON_START) != 0;
-    a.quick_load = (b & GARLIC_BUTTON_SELECT) != 0;
-    a.auto_play = (b & GARLIC_BUTTON_Y) != 0;
+    bool story = !ui && !script_menu && !pick_a_slot;
+    a.ok = (b & GARLIC_BUTTON_A) != 0 || (story && (b & GARLIC_BUTTON_DOWN));
+    a.cancel = (b & (ui || script_menu || pick_a_slot ? GARLIC_BUTTON_B
+                     : GARLIC_BUTTON_X | GARLIC_BUTTON_START)) != 0;
+    a.skip = story && (b & GARLIC_BUTTON_R) != 0;
+    a.hide_window = story && (b & GARLIC_BUTTON_B) != 0;
+    a.quick_save = story && (b & GARLIC_BUTTON_R2) != 0;
+    a.quick_load = story && (b & GARLIC_BUTTON_L2) != 0;
+    a.auto_play = story && (b & GARLIC_BUTTON_Y) != 0;
+    a.settings = story && (b & GARLIC_BUTTON_SELECT) != 0;
+    if (story) a.down = false; /* a forward key, not a second navigation event */
     return a;
 }
 

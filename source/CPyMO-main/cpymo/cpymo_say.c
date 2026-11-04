@@ -6,7 +6,13 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#ifdef GARLIC_NO_FFMPEG
+/* Keep read-state distinction and the script's RGB colour, with less dimming
+ * on the handheld screen. Unread text remains exactly full opacity. */
+const static float already_read_text_alpha = 0.85f;
+#else
 const static float already_read_text_alpha = 0.6f;
+#endif
 const float static auto_mode_time = 2.0f;
 
 #define DISABLE_TEXTBOX(SAY) \

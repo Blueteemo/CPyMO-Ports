@@ -389,6 +389,10 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 		(int)e->gameconfig.textspeed,
 		text_speed_inc_dec_btn);
 
+#ifdef GARLIC_NO_FFMPEG
+    INIT_ITEM(ITEM_FONT_SIZE, l->config_fontsize, 0, 1,
+        (int)e->gameconfig.garlic_font_large, true);
+#else
 	INIT_ITEM(
 		ITEM_FONT_SIZE, 
 		l->config_fontsize, 
@@ -396,6 +400,7 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 		32, 
 		(int)e->gameconfig.fontsize,
 		true);
+#endif
 
 	INIT_ITEM(
 		ITEM_SKIP_ALREADY_READ_ONLY, 
@@ -454,7 +459,12 @@ static error_t cpymo_config_ui_set_value(
 		else val_str = "0%";
 		break;
 	case ITEM_FONT_SIZE:
-		sprintf(val_str_buf, "%d", val);
+#ifdef GARLIC_NO_FFMPEG
+        val_str = (unsigned char)l->config_fontsize[0] >= 128 ?
+            (val ? "大" : "小") : (val ? "Large" : "Small");
+#else
+        sprintf(val_str_buf, "%d", val);
+#endif
 		break;
 	case ITEM_TEXT_SPEED:
 		assert(val >= 0 && val <= 5);
@@ -502,7 +512,12 @@ JUST_REFRESH:
 		cpymo_config_ui_schedule_save(ui);
 		break;
 	case ITEM_FONT_SIZE:
-		e->gameconfig.fontsize = (uint16_t)val;
+		#ifdef GARLIC_NO_FFMPEG
+        e->gameconfig.garlic_font_large = val != 0;
+        cpymo_config_ui_schedule_save(ui);
+#else
+        e->gameconfig.fontsize = (uint16_t)val;
+#endif
 		cpymo_config_ui_refresh_items(e);
 		break;
 	case ITEM_TEXT_SPEED:

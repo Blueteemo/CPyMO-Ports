@@ -21,18 +21,26 @@ static void test_viewports(void)
 
 static void test_buttons(void)
 {
-    garlic_actions a=garlic_map_buttons(GARLIC_BUTTON_A|GARLIC_BUTTON_X, false);
-    assert(a.ok && a.skip && !a.cancel);
-    a=garlic_map_buttons(GARLIC_BUTTON_B|GARLIC_BUTTON_START, false);
-    assert(a.cancel && !a.ok);
-    a=garlic_map_buttons(GARLIC_BUTTON_SELECT, true);
-    assert(a.up && !a.cancel);
-    a=garlic_map_buttons(GARLIC_BUTTON_SELECT, false);
-    assert(!a.up);
-    a=garlic_map_buttons(GARLIC_BUTTON_R|GARLIC_BUTTON_Y, false);
-    assert(a.hide_window);
-    a=garlic_map_buttons(GARLIC_BUTTON_L|GARLIC_BUTTON_DOWN, false);
-    assert(a.skip && a.down);
+    garlic_actions a=garlic_map_buttons(GARLIC_BUTTON_A|GARLIC_BUTTON_DOWN, false, false, false);
+    assert(a.ok && !a.down && !a.cancel);
+    a=garlic_map_buttons(GARLIC_BUTTON_UP, false, false, false); assert(a.up && !a.ok);
+    a=garlic_map_buttons(GARLIC_BUTTON_B, false, false, false); assert(a.hide_window && !a.cancel);
+    a=garlic_map_buttons(GARLIC_BUTTON_X|GARLIC_BUTTON_START, false, false, false); assert(a.cancel);
+    a=garlic_map_buttons(GARLIC_BUTTON_SELECT, false, false, false); assert(a.settings && !a.quick_load);
+    a=garlic_map_buttons(GARLIC_BUTTON_R2, false, false, false); assert(a.quick_save && !a.quick_load);
+    a=garlic_map_buttons(GARLIC_BUTTON_L2, false, false, false); assert(a.quick_load && !a.quick_save);
+    a=garlic_map_buttons(GARLIC_BUTTON_R, false, false, false); assert(a.skip);
+    a=garlic_map_buttons(GARLIC_BUTTON_L, false, false, false);
+    assert(!a.up && !a.skip && !a.ok && !a.cancel);
+    for (int state=0; state<3; ++state) {
+        bool ui=state==0, choice=state==1, slot=state==2;
+        a=garlic_map_buttons(GARLIC_BUTTON_DOWN|GARLIC_BUTTON_B,ui,choice,slot);
+        assert(a.down && !a.ok && a.cancel && !a.hide_window);
+        a=garlic_map_buttons(GARLIC_BUTTON_L2|GARLIC_BUTTON_R2|GARLIC_BUTTON_Y|
+            GARLIC_BUTTON_SELECT|GARLIC_BUTTON_R,ui,choice,slot);
+        assert(!a.quick_save && !a.quick_load && !a.auto_play && !a.settings && !a.skip);
+    }
+
 }
 
 static void test_blit(void)

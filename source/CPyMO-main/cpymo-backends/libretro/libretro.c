@@ -42,7 +42,15 @@
 
 
 static void                            fallback_log(enum retro_log_level level, const char *fmt, ...);
-static retro_log_printf_t              log_cb     = fallback_log;
+static void garlic_log(enum retro_log_level level, const char *fmt, ...);
+static retro_log_printf_t              log_cb = garlic_log;
+static retro_log_printf_t              frontend_log = fallback_log;
+static bool garlic_debug;
+static char garlic_log_path[PATH_MAX];
+static FILE *garlic_log_file;
+static size_t garlic_log_bytes;
+static unsigned garlic_output_percent = 50;
+static void garlic_diagnostics_begin(const char *gamedir);
 static retro_video_refresh_t           video_cb;
 static retro_input_poll_t              input_poll_cb;
 static retro_input_state_t             input_state_cb;
@@ -163,6 +171,7 @@ static cpymo_backend_text garlic_toast_text;
 static float             garlic_toast_left;
 static float             garlic_toast_w, garlic_toast_h;
 static uint32_t          garlic_prev_buttons;
+static bool              garlic_drain_buttons;
 #ifdef GARLIC_UI_DEBUG
 static unsigned          polls_dbg;
 #endif
@@ -370,6 +379,47 @@ static void fallback_log(enum retro_log_level level, const char *fmt, ...)
     va_end(va);
 }
 
+/* Bounded diagnostics: no per-frame SD writes in normal play. A fresh
+ * per-game trace is opened only for a debug session or an actual error. */
+static void garlic_diagnostics_begin(const char *gamedir)
+{
+    if (garlic_log_file) fclose(garlic_log_file);
+    garlic_log_file = NULL; garlic_log_bytes = 0; garlic_log_path[0] = 0;
+    const char *v = getenv("CPYMO_DEBUG");
+    garlic_debug = v && !strcmp(v, "1");
+    FILE *flag = garlic_open_save(gamedir, "rg35xx-debug.flag", "rb");
+    if (flag) { garlic_debug = true; fclose(flag); }
+    if (garlic_save_path(garlic_log_path, sizeof(garlic_log_path), gamedir,
+            garlic_get_save_root(), "rg35xx.log") && garlic_debug) {
+        garlic_make_save_dir(gamedir, garlic_get_save_root());
+        garlic_log_file = fopen(garlic_log_path, "wb");
+    }
+}
+static void garlic_log(enum retro_log_level level, const char *fmt, ...)
+{
+    if (!garlic_debug && level < RETRO_LOG_ERROR) return;
+    char msg[2048]; va_list ap; va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap); va_end(ap);
+    frontend_log(level, "%s", msg);
+    if (!garlic_log_file && garlic_log_path[0] && garlic_log_bytes == 0) {
+        garlic_log_file = fopen(garlic_log_path, "wb");
+        if (!garlic_log_file) garlic_log_bytes = 262144;
+    }
+    if (garlic_log_file && garlic_log_bytes < 262144) {
+        size_t n = strlen(msg), left = 262144 - garlic_log_bytes;
+        if (n > left) n = left;
+        garlic_log_bytes += fwrite(msg, 1, n, garlic_log_file);
+        if (level >= RETRO_LOG_ERROR) fflush(garlic_log_file);
+    }
+}
+/* Linear gain after the existing mixer/resampler, identical for all channels.
+ * A 0..100% gain cannot introduce clipping or alter game channel settings. */
+static void garlic_output_gain(int16_t *samples, size_t count)
+{
+    for (size_t i = 0; i < count; ++i)
+        samples[i] = (int16_t)((int32_t)samples[i] * (int32_t)garlic_output_percent / 100);
+}
+
 unsigned retro_api_version(void)
 {
     return RETRO_API_VERSION;
@@ -390,6 +440,7 @@ static void audio_callback(void)
 #ifndef GARLIC_NO_FFMPEG
     if (audio_mutex_initialized) mtx_unlock(&audio_mutex);
 #endif
+    garlic_output_gain(audio_buffer, samples * 2);
     audio_batch_cb(audio_buffer, samples);
 }
 
@@ -407,7 +458,7 @@ void retro_set_environment(retro_environment_t cb)
     };
     environ_cb = cb;
     if (environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log))
-        log_cb = log.log;
+        frontend_log = log.log;
 
     if (environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK, &audio)) {
         use_audio_callback = true;
@@ -451,7 +502,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
     info->need_fullpath = true;
     info->valid_extensions = "txt|/";
-    info->library_version = "1.1.9";
+    info->library_version = "0.24.2";
     info->library_name = "CPyMO";
     info->block_extract = false;
 }
@@ -707,10 +758,8 @@ static void garlic_text_layer_configure(void)
     soft_context.text_dirty_y1 = 0;
 }
 
-/* Blend the text layer onto the finished RGB565 frame and clear the pixels
- * that were touched in the same pass. Straight alpha, source-over. No integer
- * divisions: the Cortex-A9 has no hardware divider, so 5/6-bit expansion comes
- * from two tables and the divide by 255 becomes a shift. */
+/* Straight alpha source-over, rounded /255 (the compiler reduces the constant
+ * division to multiplies/shifts). Preserve both script colour and opacity. */
 static void garlic_text_layer_composite(uint16_t *frame)
 {
     static uint8_t e5[32], e6[64];
@@ -735,9 +784,9 @@ static void garlic_text_layer_composite(uint16_t *frame)
             src[x] = 0;
             uint32_t k = 255u - a;
             uint16_t d = dst[x];
-            uint32_t r = ((px & 0xff) * a + e5[(d >> 11) & 0x1f] * k) >> 8;
-            uint32_t g = (((px >> 8) & 0xff) * a + e6[(d >> 5) & 0x3f] * k) >> 8;
-            uint32_t b = (((px >> 16) & 0xff) * a + e5[d & 0x1f] * k) >> 8;
+            uint32_t r = ((px & 0xff) * a + e5[(d >> 11) & 0x1f] * k + 127u) / 255u;
+            uint32_t g = (((px >> 8) & 0xff) * a + e6[(d >> 5) & 0x3f] * k + 127u) / 255u;
+            uint32_t b = (((px >> 16) & 0xff) * a + e5[d & 0x1f] * k + 127u) / 255u;
             dst[x] = (uint16_t)(((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3));
         }
     }
@@ -820,7 +869,7 @@ static error_t garlic_after_game_selected(const char *gamedir)
 static error_t garlic_selector_before(cpymo_engine *e, const char *gamedir)
 {
     (void)e;
-    (void)gamedir;
+    garlic_diagnostics_begin(gamedir);
     return CPYMO_ERR_SUCC;
 }
 
@@ -915,6 +964,15 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
 
 bool retro_load_game(const struct retro_game_info *game)
 {
+    const char *dbg = getenv("CPYMO_DEBUG");
+    garlic_debug = dbg && !strcmp(dbg, "1");
+    const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
+    char *pct_end = NULL;
+    long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
+    garlic_output_percent = pct && (pct_end == pct || *pct_end || pct_value < 0 || pct_value > 100)
+        ? 50 : (unsigned)pct_value;
+    garlic_prev_buttons = 0;
+    garlic_drain_buttons = false;
     error_t err;
     if (garlic_game_loaded || garlic_engine_ready)
         retro_unload_game();
@@ -1007,6 +1065,7 @@ bool retro_load_game(const struct retro_game_info *game)
     uint64_t tick_engine, tick_font, tick_alloc;
     garlic_load_begin = garlic_micros();
 
+    garlic_diagnostics_begin(gamedir);
     tick_engine = garlic_load_begin;
     err = cpymo_engine_init(&engine, gamedir);
     tick_font = garlic_micros();
@@ -1073,9 +1132,8 @@ static void garlic_toast(const char *text)
 {
     garlic_toast_clear();
     if (!text) return;
-    float h = engine.gameconfig.imagesize_h * 0.045f;
-    if (h < 11.0f) h = 11.0f;
-    if (h > 26.0f) h = 26.0f;
+    /* 25 physical pixels across all supported game canvases. */
+    float h = 25.0f / soft_context.text_scale;
     float w = 0;
     if (cpymo_backend_text_create(&garlic_toast_text, &w,
         cpymo_str_pure(text), h) != CPYMO_ERR_SUCC) {
@@ -1084,7 +1142,8 @@ static void garlic_toast(const char *text)
     }
     garlic_toast_w = w;
     garlic_toast_h = h;
-    garlic_toast_left = 1.4f;
+    garlic_toast_left = 1.6f;
+    cpymo_engine_request_redraw(&engine);
 }
 
 static void garlic_toast_draw(void)
@@ -1093,7 +1152,7 @@ static void garlic_toast_draw(void)
     float w = garlic_toast_w, h = garlic_toast_h;
     float cw = (float)engine.gameconfig.imagesize_w;
     float ch = (float)engine.gameconfig.imagesize_h;
-    float x = cw * 0.03f, y = ch * 0.86f;
+    float x = cw * 0.04f, y = ch * 0.035f;
     float pad = h * 0.35f;
     float box[] = { x - pad, y - pad, w + pad * 2, h + pad * 2 };
     float alpha = garlic_toast_left < 0.3f ? garlic_toast_left / 0.3f : 1.0f;
@@ -1103,10 +1162,11 @@ static void garlic_toast_draw(void)
         alpha, cpymo_backend_image_draw_type_ui_element);
 }
 
-/* Quick save/load and auto play, mirroring NDS START/SELECT/Y. */
+/* One press, one action; no slot writes while choices/UI/hidden text are active. */
 static void garlic_oneshot(const garlic_actions *a)
 {
-    if (cpymo_ui_enabled(&engine) || !engine.say.active) return;
+    if (cpymo_ui_enabled(&engine) || !engine.say.active ||
+        engine.select_img.selections || engine.say.hide_window) return;
     if (a->quick_save) {
         error_t e = cpymo_save_write(&engine, 1);
         garlic_toast(e == CPYMO_ERR_SUCC ? "已快速保存到存档 1"
@@ -1122,6 +1182,8 @@ static void garlic_oneshot(const garlic_actions *a)
         garlic_toast(e == CPYMO_ERR_SUCC ? "已快速读取存档 1"
                                          : "快速读取失败或存档不存在");
         log_cb(RETRO_LOG_INFO, "quick load slot 1: %d\n", (int)e);
+    } else if (a->settings) {
+        cpymo_config_ui_enter(&engine);
     } else if (a->auto_play) {
         engine.say.auto_mode = !engine.say.auto_mode;
         engine.say.auto_mode_timer = -1;
@@ -1143,6 +1205,8 @@ static void input_update(void)
     if (JOY(RIGHT))  b |= GARLIC_BUTTON_RIGHT;
     if (JOY(L))      b |= GARLIC_BUTTON_L;
     if (JOY(R))      b |= GARLIC_BUTTON_R;
+    if (JOY(L2))     b |= GARLIC_BUTTON_L2;
+    if (JOY(R2))     b |= GARLIC_BUTTON_R2;
     if (JOY(START))  b |= GARLIC_BUTTON_START;
     if (JOY(SELECT)) b |= GARLIC_BUTTON_SELECT;
 #undef JOY
@@ -1152,11 +1216,24 @@ static void input_update(void)
     garlic_actions a = garlic_map_buttons(b, cpymo_ui_enabled(&engine),
         script_menu, pick_a_slot);
     uint32_t pressed = b & ~garlic_prev_buttons;
-    a.quick_save = (pressed & GARLIC_BUTTON_START) != 0;
-    a.quick_load = (pressed & GARLIC_BUTTON_SELECT) != 0;
-    a.auto_play = (pressed & GARLIC_BUTTON_Y) != 0;
+    a.quick_save = a.quick_save && (pressed & GARLIC_BUTTON_R2);
+    a.quick_load = a.quick_load && (pressed & GARLIC_BUTTON_L2);
+    a.auto_play = a.auto_play && (pressed & GARLIC_BUTTON_Y);
+    a.settings = a.settings && (pressed & GARLIC_BUTTON_SELECT);
+    /* Opposing shoulders/chords do nothing. Other held buttons cannot turn a
+     * save/load press into an advance, menu-open, or double operation. */
+    uint32_t action = b & (GARLIC_BUTTON_L2 | GARLIC_BUTTON_R2 |
+                          GARLIC_BUTTON_Y | GARLIC_BUTTON_SELECT);
+    if (action && (action & (action - 1)))
+        a.quick_save = a.quick_load = a.auto_play = a.settings = false;
     garlic_prev_buttons = b;
-    garlic_oneshot(&a);
+    if (!garlic_drain_buttons) garlic_oneshot(&a);
+    if (action) garlic_drain_buttons = true;
+    if (!b) garlic_drain_buttons = false;
+    if (garlic_drain_buttons) {
+        a.ok = a.cancel = a.skip = a.hide_window = false;
+        a.up = a.down = a.left = a.right = false;
+    }
 #ifdef GARLIC_UI_DEBUG
     if (polls_dbg++ % 20 == 0)
         fprintf(stderr, "DBG poll ui=%d choice=%d say=%d cancel=%d ok=%d\n",
@@ -1177,6 +1254,8 @@ static void input_update(void)
     input.mouse_x = 0;
     input.mouse_y = 0;
     input.mouse_wheel_delta = 0;
+    /* Consumed chords must not emit a phantom forward/cancel release. */
+    if (garlic_drain_buttons) engine.input = input;
 }
 
 void retro_run(void)
@@ -1194,6 +1273,8 @@ void retro_run(void)
     uint64_t after_update = garlic_micros();
     garlic_prof_update_us += after_update - tick;
     if (err != CPYMO_ERR_SUCC) {
+        if (err != CPYMO_ERR_NO_MORE_CONTENT)
+            log_cb(RETRO_LOG_ERROR, "engine update failed: %s\n", cpymo_error_message(err));
 #ifdef GARLIC_UI_DEBUG
         fprintf(stderr, "DBG err=%d\n", (int)err);
 #endif
@@ -1201,10 +1282,17 @@ void retro_run(void)
     if (err == CPYMO_ERR_NO_MORE_CONTENT)
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
 
+    if (cpymo_ui_enabled(&engine)) garlic_toast_clear();
+    if (garlic_toast_left > 0) {
+        redraw = true;
+        garlic_toast_left -= delta;
+        if (garlic_toast_left <= 0) garlic_toast_clear();
+    }
     if (redraw || garlic_first_frame) {
         garlic_prof_draws++;
         tick = garlic_micros();
         cpymo_engine_draw(&engine);
+        garlic_toast_draw();
         uint64_t after_draw = garlic_micros();
         garlic_prof_draw_us += after_draw - tick;
         if (!garlic_blit_rgb565(garlic_rgb565_frame, GARLIC_OUTPUT_WIDTH * 2,
@@ -1215,16 +1303,8 @@ void retro_run(void)
             return;
         }
         garlic_text_layer_composite(garlic_rgb565_frame);
-        garlic_toast_draw();
         garlic_prof_convert_us += garlic_micros() - after_draw;
         garlic_first_frame = false;
-#ifdef GARLIC_UI_DEBUG
-        fprintf(stderr, "DBG frame drawn %d\n", (int)garlic_prof_frames);
-#endif
-    }
-    if (garlic_toast_left > 0) {
-        garlic_toast_left -= delta;
-        if (garlic_toast_left <= 0) garlic_toast_clear();
     }
     garlic_prof_frames++;
     if (garlic_prof_frames >= 180) garlic_prof_report();
@@ -1239,6 +1319,7 @@ void retro_run(void)
     if (audio_enabled && !use_audio_callback) {
         tick = garlic_micros();
         cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
+        garlic_output_gain(audio_buffer, samples * 2);
         audio_batch_cb(audio_buffer, samples);
         garlic_prof_audio_us += garlic_micros() - tick;
     }
@@ -1276,6 +1357,10 @@ void retro_unload_game(void)
         cpymo_engine_free(&engine);
         garlic_engine_ready = false;
     }
+    garlic_toast_clear();
+    free(garlic_text_layer); garlic_text_layer = NULL;
+    if (garlic_log_file) fclose(garlic_log_file);
+    garlic_log_file = NULL; garlic_log_path[0] = 0;
     cpymo_backend_software_set_context(NULL);
     free(garlic_rgb565_frame);
     garlic_rgb565_frame = NULL;

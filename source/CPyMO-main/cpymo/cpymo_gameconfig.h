@@ -35,6 +35,9 @@ typedef struct {
 	char platform[8];
 	char scripttype[4];
 	uint16_t fontsize;
+#ifdef GARLIC_NO_FFMPEG
+    bool garlic_font_large; /* UI sidecar; never changes legacy csav layout */
+#endif
 	int16_t nameboxorg_x, nameboxorg_y;
 	uint16_t msgtb_t, msgtb_b;
 	uint16_t msglr_l, msglr_r;
@@ -74,6 +77,12 @@ static inline bool cpymo_gameconfig_scripttype_is_pymo(const cpymo_gameconfig *g
 }
 
 static inline float cpymo_gameconfig_font_size(const cpymo_gameconfig *c)
-{ return c->fontsize / 240.0f * c->imagesize_h * 0.8f; }
+{
+    float size = c->fontsize / 240.0f * c->imagesize_h * 0.8f;
+#ifdef GARLIC_NO_FFMPEG
+    if (!c->garlic_font_large) size *= 0.92f;
+#endif
+    return size;
+}
 
 #endif

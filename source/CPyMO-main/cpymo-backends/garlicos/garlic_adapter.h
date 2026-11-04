@@ -21,24 +21,24 @@ enum garlic_button {
     GARLIC_BUTTON_L      = 1u << 8,
     GARLIC_BUTTON_R      = 1u << 9,
     GARLIC_BUTTON_START  = 1u << 10,
-    GARLIC_BUTTON_SELECT = 1u << 11
+    GARLIC_BUTTON_SELECT = 1u << 11,
+    GARLIC_BUTTON_L2 = 1u << 12,
+    GARLIC_BUTTON_R2 = 1u << 13
 };
 
 typedef struct garlic_actions {
     bool up, down, left, right;
     bool ok, cancel, skip, hide_window;
     /* One-shot keys; the caller clears them when the press is consumed. */
-    bool quick_save, quick_load, auto_play;
+    bool quick_save, quick_load, auto_play, settings;
 } garlic_actions;
 
 typedef struct garlic_viewport {
     int x, y, w, h;
 } garlic_viewport;
 
-/* Mirrors the CPyMO NDS mapping on a single screen. `ui` is an engine UI
- * (menu, save list, backlog, config), `choice` a script menu without saving:
- * B cancels there and X opens the menu in the story. START/SELECT/ Y are
- * one-shot and reported separately, A/B/X/R keep the NDS semantics. */
+/* RG35XX story keys differ from menu/choice navigation. MENU belongs to
+ * RetroArch; its hotkey gate must suppress core input while MENU is held. */
 garlic_actions garlic_map_buttons(uint32_t buttons, bool ui, bool script_menu,
     bool pick_a_slot);
 

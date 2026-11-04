@@ -16,6 +16,7 @@ BUILD="${BUILD:-$ROOT/build-menu}"
 FIX="$BUILD/apps"
 FONT="${CPYMO_TEST_FONT:-$ROOT/deploy/Roms/APPS/CPyMO_RG35XX_uClibc_Test/system/default.ttf}"
 export CPYMO_TEST_FONT="$FONT"
+export CPYMO_DEBUG=1 # this suite explicitly asserts diagnostic content
 
 mkdir -p "$BUILD"
 

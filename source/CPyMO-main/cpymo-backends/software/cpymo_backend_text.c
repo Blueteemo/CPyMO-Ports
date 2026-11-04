@@ -102,6 +102,7 @@ static void cpymo_backend_text_render(
 typedef struct {
     size_t w, h;
     float baseline;
+    float ink_center_from_baseline;
     uint16_t pad_x, pad_y;
     uint8_t px[0];
 } cpymo_backend_text_impl;
@@ -157,12 +158,34 @@ error_t cpymo_backend_text_create(
 #endif
 
     o->baseline = baseline;
+    size_t ink_min = o->h, ink_max = 0;
+    for (size_t yy = 0; yy < o->h; ++yy)
+        for (size_t xx = 0; xx < o->w; ++xx)
+            if (o->px[yy * o->w + xx]) {
+                if (yy < ink_min) ink_min = yy;
+                if (yy > ink_max) ink_max = yy;
+            }
+    o->ink_center_from_baseline = ink_min <= ink_max ?
+        ((float)ink_min + (float)ink_max) * 0.5f - baseline - o->pad_y : 0;
+
 #ifdef GARLIC_UI_DEBUG
     fprintf(stderr, "TX end  out=%p w=%u h=%u base=%f\n", (void *)o,
         (unsigned)o->w, (unsigned)o->h, o->baseline);
 #endif
 
     return CPYMO_ERR_SUCC;   
+}
+
+/* Only callers that explicitly request visual centring use ink metrics.
+ * The popup/button rectangles and the rest of the text layout stay fixed. */
+float garlic_text_centered_baseline(cpymo_backend_text text, float center_y)
+{
+    cpymo_backend_text_impl *t = (cpymo_backend_text_impl *)text;
+    float scale = cpymo_backend_software_cur_context->text_layer ?
+        cpymo_backend_software_cur_context->text_scale :
+        (float)cpymo_backend_software_cur_context->render_target->h /
+        cpymo_backend_software_cur_context->logical_screen_h;
+    return center_y - t->ink_center_from_baseline / scale;
 }
 
 void cpymo_backend_text_free(cpymo_backend_text t){
@@ -205,10 +228,10 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
 #ifdef GARLIC_UI_DEBUG
     fprintf(stderr, "TD begin t=%p w=%u h=%u x=%f y=%f\n", (void *)t, (unsigned)t->w, (unsigned)t->h, x, y);
 #endif
-    for (uint16_t draw_rect_y = 0; draw_rect_y < t->h; ++draw_rect_y) {
+    for (size_t draw_rect_y = 0; draw_rect_y < t->h; ++draw_rect_y) {
         const uint8_t *src_row = t->px + (size_t)draw_rect_y * t->w;
 
-        for (uint16_t draw_rect_x = 0; draw_rect_x < t->w * TEXT_CHARACTER_W_SCALE; ++draw_rect_x) {
+        for (size_t draw_rect_x = 0; draw_rect_x < t->w * TEXT_CHARACTER_W_SCALE; ++draw_rect_x) {
             long draw_x = (long)x + (long)draw_rect_x;
             long draw_y = (long)y + (long)draw_rect_y;
 
@@ -223,7 +246,7 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
              * write is a no-op; skipping it is equivalent, not a shortcut. */
             if (pixel_alpha == 0.0f) continue;
 
-            float a = alpha * pixel_alpha;
+            float a = fminf(1.0f, fmaxf(0.0f, alpha)) * pixel_alpha;
             if (a == 0.0f) continue;
 
             if (cpymo_backend_software_cur_context->text_layer) {

@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef GARLIC_NO_FFMPEG
+extern float garlic_text_centered_baseline(cpymo_backend_text, float);
+#endif
+
 #ifdef __3DS__
 extern bool fill_screen_enabled;
 const extern bool fill_screen;
@@ -194,7 +198,11 @@ static void cpymo_msgbox_ui_draw_btn(
 	cpymo_backend_text_draw(
 		btn_txt,
 		screen_w / 2 - txt_width / 2,
-		y + xywh[3] / 2 + font_size / 2 - font_size * 0.15f,
+#ifdef GARLIC_NO_FFMPEG
+        garlic_text_centered_baseline(btn_txt, y + (xywh[3] - 1) / 2),
+#else
+        y + xywh[3] / 2 + font_size / 2 - font_size * 0.15f,
+#endif
 		sel ? cpymo_color_black : cpymo_color_white,
 		1.0f,
 		cpymo_backend_image_draw_type_ui_element);

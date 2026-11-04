@@ -140,7 +140,27 @@ fi
 
 RA_ROOT="${CPYMO_RETROARCH_HOME:-/mnt/mmc/CFW/retroarch}"
 RA_BIN="${CPYMO_RETROARCH_BIN:-$RA_ROOT/retroarch}"
-LOG="${CPYMO_LOG:-$APPDIR/$SELF.log}"
+APPHOME="$APPDIR/CPyMO"
+LOGDIR="$APPHOME/logs"
+mkdir -p "$LOGDIR" || exit 46
+LOG="${CPYMO_LOG:-$LOGDIR/launcher.log}"
+# No source/eval of a writable settings file. Only a validated number is read.
+if [ -z "${CPYMO_OUTPUT_PERCENT:-}" ]; then
+    CPYMO_OUTPUT_PERCENT=50
+    if [ -r "$APPHOME/output-volume.txt" ]; then
+        IFS= read -r CPYMO_OUTPUT_PERCENT < "$APPHOME/output-volume.txt" || :
+    fi
+fi
+case "$CPYMO_OUTPUT_PERCENT" in
+    ''|*[!0-9]*) CPYMO_OUTPUT_PERCENT=50 ;;
+    *) [ "$CPYMO_OUTPUT_PERCENT" -le 100 ] 2>/dev/null || CPYMO_OUTPUT_PERCENT=50 ;;
+esac
+export CPYMO_OUTPUT_PERCENT
+[ ! -f "$APPHOME/debug.flag" ] || CPYMO_DEBUG=1
+export CPYMO_DEBUG
+APPEND_CONFIG="$APPHOME/retroarch-cpymo.cfg"
+RA_CONFIG="${CPYMO_RETROARCH_CONFIG:-$RA_ROOT/.retroarch/retroarch.cfg}"
+[ -f "$RA_CONFIG" ] || RA_CONFIG="$RA_ROOT/retroarch.cfg"
 
 # --- saves ---------------------------------------------------------
 # Android/GarlicOS cards are mounted read-only in places; the historical
@@ -209,9 +229,11 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
     echo 'stage=launching_retroarch_libretro'
     cd "$RA_ROOT" || exit 44
-    export HOME="$RA_ROOT"
-    # The DIRECTORY is passed, so the same core works for every game.
-    "$RA_BIN" -v -L "$CORE" "$GAMEDIR"
+    # Append only for this CPyMO process; never save over global RA settings.
+    set -- -L "$CORE"
+    [ ! -r "$RA_CONFIG" ] || set -- "$@" --config "$RA_CONFIG"
+    [ ! -r "$APPEND_CONFIG" ] || set -- "$@" --appendconfig "$APPEND_CONFIG"
+    "$RA_BIN" "$@" "$GAMEDIR" >/dev/null 2>&1
     result=$?
     echo "stage=retroarch_exited exit_code=$result"
     exit "$result"

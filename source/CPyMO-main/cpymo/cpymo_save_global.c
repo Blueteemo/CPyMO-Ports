@@ -172,6 +172,30 @@ error_t cpymo_save_global_save(cpymo_engine *e)
 	#undef WRITE
 }
 
+#ifdef GARLIC_NO_FFMPEG
+/* Independent setting: original config.csav remains exactly six LE u16s. */
+static void garlic_font_load(cpymo_engine *e)
+{
+    e->gameconfig.garlic_font_large = false;
+    FILE *f = cpymo_backend_read_save(e->assetloader.gamedir, "rg35xx-ui.cfg");
+    if (!f) return;
+    char buf[32] = {0}; size_t n = fread(buf, 1, sizeof(buf)-1, f); fclose(f);
+    if (n == strlen("CPYMO_UI_1\nfont=large\n") &&
+        !strcmp(buf, "CPYMO_UI_1\nfont=large\n"))
+        e->gameconfig.garlic_font_large = true;
+}
+static error_t garlic_font_save(const cpymo_engine *e)
+{
+    FILE *f = cpymo_backend_write_save(e->assetloader.gamedir, "rg35xx-ui.cfg");
+    if (!f) return CPYMO_ERR_CAN_NOT_OPEN_FILE;
+    const char *v = e->gameconfig.garlic_font_large ?
+        "CPYMO_UI_1\nfont=large\n" : "CPYMO_UI_1\nfont=small\n";
+    bool ok = fwrite(v, 1, strlen(v), f) == strlen(v);
+    if (fclose(f) != 0) ok = false;
+    return ok ? CPYMO_ERR_SUCC : CPYMO_ERR_UNKNOWN;
+}
+#endif
+
 error_t cpymo_save_config_save(const cpymo_engine *e)
 {
 	uint16_t config[] = {
@@ -190,18 +214,25 @@ error_t cpymo_save_config_save(const cpymo_engine *e)
 	if (config_file == NULL) return CPYMO_ERR_CAN_NOT_OPEN_FILE;
 
 	const size_t written = fwrite(config, sizeof(config), 1, config_file);
-	fclose(config_file);
-	if (written != 1) return CPYMO_ERR_UNKNOWN;
+	int close_error = fclose(config_file);
+	if (close_error != 0 || written != 1) return CPYMO_ERR_UNKNOWN;
 
 #ifdef __EMSCRIPTEN__
 	EM_ASM(FS.syncfs(false, function(err) {}););
 #endif
 		
-	return CPYMO_ERR_SUCC;
+	#ifdef GARLIC_NO_FFMPEG
+    return garlic_font_save(e);
+    #else
+    return CPYMO_ERR_SUCC;
+    #endif
 }
 
 error_t cpymo_save_config_load(cpymo_engine *e)
 {
+#ifdef GARLIC_NO_FFMPEG
+    garlic_font_load(e);
+#endif
 	uint16_t config[6];
 	FILE *file = cpymo_backend_read_save(e->assetloader.gamedir, "config.csav");
 	if (file == NULL) return CPYMO_ERR_CAN_NOT_OPEN_FILE;

@@ -34,6 +34,7 @@ mkdir -p "$APPS/Story" && printf 'gametitle,S\nimagesize,320,240\n' \
 # The recorder answers like RetroArch: it echoes the -L core and the content.
 cat > "$FAKE_RA" <<'EOF'
 #!/bin/sh
+exec > "$CPYMO_TEST_ARGV"
 printf 'retroarch_argv:'
 for a in "$@"; do printf ' [%s]' "$a"; done
 printf '\n'
@@ -64,6 +65,7 @@ check_not() {
 export CPYMO_RETROARCH_BIN="$FAKE_RA"
 export CPYMO_RETROARCH_HOME="$WORK/rahome"
 export CPYMO_SAVE_ROOT="$WORK/saves"
+export CPYMO_TEST_ARGV="$WORK/argv.txt"
 # The host has no uClibc loader; the check itself is exercised separately.
 export CPYMO_LOADER=none
 
@@ -71,7 +73,7 @@ echo '== 1. explicit argument (a directory)'
 CPYMO_LOG="$WORK/a.log" "$APPS/CPyMO.sh" "$APPS/GameOne"
 check    "game_dir is recorded"   "game_dir=$APPS/GameOne" "$WORK/a.log"
 check    "the core was found next to the launcher" "core=$APPS/cpymo_libretro.so" "$WORK/a.log"
-check    "retroarch ran with -L"  "[-L]" "$WORK/a.log"
+check    "retroarch ran with -L"  "[-L]" "$WORK/argv.txt"
 check    "on the game directory" "$APPS/GameOne" "$WORK/a.log"
 check    "the launcher announced the launch" "stage=launching_retroarch_libretro" "$WORK/a.log"
 check    "and a clean exit"       "stage=retroarch_exited exit_code=0" "$WORK/a.log"
@@ -115,7 +117,7 @@ set -e
 if [ "$rc0" = "0" ]; then echo "  ok    the folder launch succeeds"; else
   echo "  FAIL  folder launch exited $rc0"; failures=$((failures+1)); fi
 check "the games folder is what RetroArch is given" \
-      "[$APPS]" "$WORK/g0.log"
+      "[$APPS]" "$WORK/argv.txt"
 check "the header says the games dir" "games_dir=$APPS" "$WORK/g0.log"
 check "and that the selector is starting" "launching_game_selector games_dir=$APPS" "$WORK/g0.log"
 
@@ -123,7 +125,7 @@ echo "== 7b2. explicit games-root launches selector"
 CPYMO_LOG="$WORK/g_explicit.log" "$APPS/CPyMO.sh" "$APPS"
 check "explicit games folder selects the menu" \
       "stage=launching_game_selector games_dir=$APPS" "$WORK/g_explicit.log"
-check "explicit root was given to core" "[$APPS]" "$WORK/g_explicit.log"
+check "explicit root was given to core" "[$APPS]" "$WORK/argv.txt"
 mkdir -p "$WORK/EmptyGame"
 set +e
 CPYMO_LOG="$WORK/g_empty.log" "$APPS/CPyMO.sh" "$WORK/EmptyGame" >/dev/null 2>&1
@@ -187,7 +189,7 @@ echo '== 9. the HEADER advertises the game and the save root before launching'
 check "the log opens" "=== CPyMO RG35XX GarlicOS/uClibc launcher ===" "$WORK/a.log"
 check "the game is named up front"   "game=$APPS/GameOne" "$WORK/a.log"
 check "the save root is named"      "save_root=$WORK/saves" "$WORK/a.log"
-check "the core's own perf line also lands in this log" "CPYMO_PERF" "$WORK/a.log"
+check_not "normal play does not copy verbose core output into launcher log" "CPYMO_PERF" "$WORK/a.log"
 check "gameconfig.txt is found"     "exists=yes path=$APPS/GameOne/gameconfig.txt" "$WORK/a.log"
 
 echo '== 10. exit 43 when the uClibc loader is missing'
