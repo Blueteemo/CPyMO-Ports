@@ -53,18 +53,25 @@ static bool environment(unsigned cmd,void *data) {
     }
 }
 static void video(const void *pixels,unsigned w,unsigned h,size_t pitch) {
-    if (!pixels || w==0 || h==0) { fputs("empty frame\n",stderr); exit(3); }
+    if (!pixels || w!=640 || h!=480 || pitch<w*2) { fputs("empty frame\n",stderr); exit(3); }
     ++frames;
     if (frames%capture_every && frames!=max_frames) return;
     char name[2200]; snprintf(name,sizeof(name),"%s/frame_%04u.ppm",outdir,frames);
-    FILE *f=fopen(name,"wb"); if(!f) return;
+    FILE *f=fopen(name,"wb"); if(!f) { perror("frame open");exit(30); }
+    static unsigned char frame[640*480*3];
     fprintf(f,"P6\n%u %u\n255\n",w,h);
     for(unsigned y=0;y<h;y++){const uint8_t*l=(const uint8_t*)pixels+y*pitch;
         for(unsigned x=0;x<w;x++){uint16_t p;memcpy(&p,l+x*2,2);
             unsigned r=(p>>11)&31u,g=(p>>5)&63u,b=p&31u;
-            const unsigned char rgb[3]={(unsigned char)((r<<3)|(r>>2)),(unsigned char)((g<<2)|(g>>4)),(unsigned char)((b<<3)|(b>>2))};
-            fwrite(rgb,1,3,f);} }
-    fclose(f);++captures;
+            size_t off=((size_t)y*w+x)*3;
+            frame[off]=(unsigned char)((r<<3)|(r>>2));
+            frame[off+1]=(unsigned char)((g<<2)|(g>>4));
+            frame[off+2]=(unsigned char)((b<<3)|(b>>2));
+        }
+    }
+    if(fwrite(frame,1,(size_t)w*h*3,f)!=(size_t)w*h*3) { perror("frame write");exit(31); }
+    if(fclose(f)) { perror("frame close");exit(32); }
+    ++captures;
 }
 static void poll(void) { ++polls; }
 static int16_t state(unsigned port,unsigned device,unsigned index,unsigned id) {
@@ -74,7 +81,8 @@ static int16_t state(unsigned port,unsigned device,unsigned index,unsigned id) {
 }
 static size_t audio_batch(const int16_t *buf,size_t n) {
     if (!wav || n==0) return n;
-    fwrite(buf,4,n,wav); wav_frames += (long)n;
+    if(fwrite(buf,4,n,wav)!=n) { perror("audio write");exit(33); }
+    wav_frames += (long)n;
     for (size_t i=0;i<n*2;i++){float v=fabsf(buf[i]/32768.0f);
         if(v>peak)peak=v; sumsq+=(double)v*v; if(buf[i])nonnull++;}
     return n;
@@ -130,7 +138,7 @@ int main(int argc,char **argv) {
     unsigned br=48000*4;memcpy(hdr+28,&br,4);unsigned short ba=4;memcpy(hdr+32,&ba,2);
     unsigned short bps=16;memcpy(hdr+34,&bps,2);
     hdr[36]='d';hdr[37]='a';hdr[38]='t';hdr[39]='a';unsigned ds=(unsigned)bytes;memcpy(hdr+40,&ds,4);
-    fseek(wav,0,SEEK_SET);fwrite(hdr,1,44,wav);fclose(wav);
+    if(fseek(wav,0,SEEK_SET) || fwrite(hdr,1,44,wav)!=44 || fclose(wav)) { perror("audio close");return 34; }
     double rms = wav_frames? sqrt(sumsq/(double)(wav_frames*2)) : 0;
     printf("AUDIO frames=%ld peak=%.3f rms=%.4f pct=%ld video_frames=%u caps=%u shutdown=%d\n",
         wav_frames,peak,rms,wav_frames?nonnull*100/(wav_frames*2):0,frames,captures,shutdown_requested);
