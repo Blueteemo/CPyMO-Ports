@@ -56,6 +56,7 @@ def case(name,content,want,mode='dash',exit_code=0,custom=False,missing_static=F
  assert e=={'audio_volume':want,'config_save_on_exit':False,'auto_overrides_enable':False},(name,mode,e)
  assert got['gain']==gain,(name,got['gain'])
  assert got['file_mode']=='0o600'and got['dir_mode']=='0o700',got
+ assert got['snapshot_mode'] in [None,'0o600'],got
  assert not Path(got['session_path']).exists(),got
  assert not Path(got['session_path']).parent.exists(),got
  assert all(stamp(Path(p))==s for p,s in before.items()),name

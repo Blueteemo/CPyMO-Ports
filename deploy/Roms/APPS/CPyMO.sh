@@ -195,7 +195,7 @@ prepare_session_config() {
         # Snapshot at most 1025 bytes once. Concurrent/partial firmware writes
         # are rejected, never executed or passed through as configuration.
         VOLUME_STATUS='read_error'
-        if dd if="$VOLUME_CONFIG" of="$RUNTIME_DIR/volume.input" bs=1025 count=1 2>/dev/null; then
+        if (umask 077; dd if="$VOLUME_CONFIG" of="$RUNTIME_DIR/volume.input" bs=1025 count=1 2>/dev/null); then
             bytes="$(wc -c < "$RUNTIME_DIR/volume.input")"
             VOLUME_STATUS='too_large'
             if [ "$bytes" -le 1024 ]; then
