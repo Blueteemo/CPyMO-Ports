@@ -1,8 +1,10 @@
 from pathlib import Path
-import os,subprocess,json,hashlib,shutil,signal,time,stat
+import os,subprocess,json,hashlib,shutil,signal,time,stat,tempfile
 ROOT=Path(__file__).resolve().parents[2]
 QA=Path(os.environ.get('CPYMO_QA_ROOT',Path.cwd())).resolve()
 RESULTS=[]
+RUNS=Path(tempfile.mkdtemp(prefix='launcher-run-',dir=QA))
+(QA/'evidence/launcher_run_root.txt').write_text(str(RUNS))
 BINARY=QA/'ra_config_probe';assert BINARY.is_file()
 BUSY=QA/'busybox-bin';BUSY.mkdir(exist_ok=True)
 subprocess.run(['/usr/bin/busybox','--install','-s',str(BUSY)],check=True)
@@ -11,7 +13,7 @@ def stamp(p):
  return (hashlib.sha256(p.read_bytes()).hexdigest(),p.stat().st_mtime_ns)
 
 def case(name,content,want,mode='dash',exit_code=0,custom=False,missing_static=False,gain='50',signal_test=False,signal_type=signal.SIGTERM):
- t=QA/'test-runs'/mode/name
+ t=RUNS/mode/name
  if t.exists():shutil.rmtree(t)
  app=t/'APPS 空格'/ 'CPyMO';game=app/'games/Demo';game.mkdir(parents=True)
  apps=app.parent
