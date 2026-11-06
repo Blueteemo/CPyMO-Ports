@@ -3,7 +3,7 @@
 #
 # Unlike the v0.21 test launcher, this one is not tied to one game: it takes
 # the game to run from its own name/argument or discovers the games sitting
-# next to it. It writes nothing outside the APPS partition.
+# next to it. Persistent files stay in APPS; private runtime files use memory.
 #
 # Usage, in the order the launcher tries:
 #
@@ -26,6 +26,8 @@
 #   CPYMO_SAVE_ROOT       where saves live; defaults to a writable directory
 #                         on the same card, see below
 #   CPYMO_LOG             the log file
+#   CPYMO_RUNTIME_ROOT    explicit temporary root for QA/special firmware;
+#                         normally unset (automatic memory-filesystem roots)
 #
 # Exit codes: 0 ran, 41/42/43 missing files (see below), 44 no writable cwd,
 #            45 could not decide which game, 46 log unavailable,
@@ -180,10 +182,86 @@ stop_retroarch() {
         RA_PID=''
     fi
 }
+runtime_filesystem() {
+    # Select the longest mountpoint prefix, including /tmp bind mounts. This
+    # keeps automatic fallback away from TF-backed system/game directories.
+    [ -r /proc/mounts ] || return 1
+    LC_ALL=C awk -v target="$1" '
+        {
+            mountpoint=$2
+            gsub(/\\040/, " ", mountpoint)
+            if (mountpoint == "/" || target == mountpoint ||
+                index(target, mountpoint "/") == 1) {
+                if (length(mountpoint) >= longest) {
+                    longest=length(mountpoint); filesystem=$3
+                }
+            }
+        }
+        END { if (!longest) exit 1; print filesystem }
+    ' /proc/mounts
+}
+prepare_runtime_dir() {
+    # No mktemp dependency: some target systems return EIO in that command.
+    # mkdir is the exclusive-create operation: never reuse/delete a collision.
+    echo 'runtime_allocator=atomic_mkdir'
+    runtime_first=1
+    for runtime_base in "${CPYMO_RUNTIME_ROOT:-/tmp}" /dev/shm /run /var/run /dev; do
+        runtime_explicit=0
+        if [ "$runtime_first" = 1 ] && [ -n "${CPYMO_RUNTIME_ROOT:-}" ]; then
+            runtime_explicit=1
+        fi
+        runtime_first=0
+        case "$runtime_base" in
+            /*) ;;
+            *) echo "runtime_skip=nonabsolute root=$runtime_base"; continue ;;
+        esac
+        case "$runtime_base" in
+            *'|'*) echo "runtime_skip=append_separator root=$runtime_base"; continue ;;
+        esac
+        if [ ! -d "$runtime_base" ]; then
+            echo "runtime_skip=missing root=$runtime_base"; continue
+        fi
+        runtime_base="$(cd "$runtime_base" 2>/dev/null && pwd -P)" || continue
+        runtime_fs="$(runtime_filesystem "$runtime_base" 2>/dev/null)" || runtime_fs='unknown'
+        if [ "$runtime_explicit" != 1 ]; then
+            case "$runtime_fs" in
+                tmpfs|ramfs|rootfs|devtmpfs) ;;
+                *) echo "runtime_skip=nonmemory root=$runtime_base fs=$runtime_fs"; continue ;;
+            esac
+        fi
+        runtime_try=0
+        while [ "$runtime_try" -lt 32 ]; do
+            runtime_try=$((runtime_try + 1))
+            runtime_candidate="$runtime_base/cpymo-ra.$$.$runtime_try"
+            if runtime_error="$(umask 077; mkdir "$runtime_candidate" 2>&1)"; then
+                # Prove the private config can be created here before reading
+                # independent volume. Only this newly owned directory is ours.
+                if runtime_error="$( (umask 077; printf '# CPyMO runtime probe\n' > "$runtime_candidate/session.cfg") 2>&1)"; then
+                    RUNTIME_DIR="$runtime_candidate"
+                    echo "runtime_root=$runtime_base"
+                    echo "runtime_fs=$runtime_fs"
+                    echo "runtime_explicit=$runtime_explicit"
+                    echo "runtime_dir=$RUNTIME_DIR"
+                    return 0
+                fi
+                printf 'runtime_failure=config_write root=%s detail=%s\n' "$runtime_base" "$runtime_error"
+                rm -f "$runtime_candidate/session.cfg" 2>/dev/null || :
+                rmdir "$runtime_candidate" 2>/dev/null || :
+                break
+            elif [ -e "$runtime_candidate" ] || [ -L "$runtime_candidate" ]; then
+                echo "runtime_collision=$runtime_candidate"
+            else
+                printf 'runtime_failure=mkdir root=%s detail=%s\n' "$runtime_base" "$runtime_error"
+                break
+            fi
+        done
+    done
+    echo 'runtime_failure=no_private_writable_memory_directory'
+    return 1
+}
 prepare_session_config() {
-    # Volatile and unique: no TF-card configuration writes or stale carry-over.
-    RUNTIME_DIR="$(umask 077; mktemp -d /tmp/cpymo-ra.XXXXXX)" || return 1
-    [ -n "$RUNTIME_DIR" ] && [ -d "$RUNTIME_DIR" ] || return 1
+    # Keep the stable volume parser/precedence; only allocation changes.
+    prepare_runtime_dir || return 1
     trap 'cleanup_runtime' 0
     trap 'stop_retroarch; exit 129' HUP
     trap 'stop_retroarch; exit 130' INT
@@ -265,7 +343,7 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
 {
     echo '=== CPyMO RG35XX GarlicOS/uClibc launcher ==='
-    echo 'launcher_revision=0.24.3a'
+    echo 'launcher_revision=0.24.5-launchfix1'
     echo "time=$(date 2>/dev/null)"
     echo "script=$0"
     echo "launcher=$SELF"
