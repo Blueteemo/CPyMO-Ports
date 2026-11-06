@@ -18,6 +18,7 @@ static uint64_t ticks(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);
 static uint64_t durations[12000];
 static int cmp64(const void*a,const void*b){uint64_t x=*(const uint64_t*)a,y=*(const uint64_t*)b;return (x>y)-(x<y);}
 static bool quiet;
+static unsigned async_registrations;
 static uint64_t choice_time;static bool scene_seen;
 
 static char outdir[2048];
@@ -65,7 +66,9 @@ static bool environment(unsigned cmd,void *data) {
             return *(enum retro_pixel_format *)data == RETRO_PIXEL_FORMAT_RGB565;
         case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
             ((struct retro_log_callback *)data)->log=logger;return true;
-        case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK: return false;
+        case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
+            async_registrations++;
+            return getenv("CPYMO_TEST_ACCEPT_ASYNC")!=NULL;
         case RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK: return false;
         case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: *(const char**)data="/nonexistent";return true;
         case RETRO_ENVIRONMENT_SHUTDOWN: shutdown_requested=true;return true;
@@ -144,6 +147,10 @@ static void poll(void) {
 static int16_t state(unsigned port,unsigned device,unsigned index,unsigned id) {
     if (port||index||device!=RETRO_DEVICE_JOYPAD) return 0;
     return polls < 12001 && id < 16 && (keys[polls] & (1u<<id)) ? 1 : 0;
+    if(getenv("CPYMO_TEST_ACCEPT_ASYNC")){
+        printf("ASYNC_OFFERS registrations=%u\n",async_registrations);
+        if(async_registrations)return 91;
+    }
     return 0;
 }
 static size_t audio_batch(const int16_t *buf,size_t n) {
@@ -229,5 +236,9 @@ int main(int argc,char **argv) {
     printf("VIDEO samples=%u unique=%u black=%u\n",motion_samples,motion_unique,motion_black);
     printf("AUDIO frames=%ld peak=%.3f rms=%.4f pct=%ld video_frames=%u caps=%u shutdown=%d\n",
         wav_frames,peak,rms,wav_frames?nonnull*100/(wav_frames*2):0,frames,captures,shutdown_requested);
+    if(getenv("CPYMO_TEST_ACCEPT_ASYNC")){
+        printf("ASYNC_OFFERS registrations=%u\n",async_registrations);
+        if(async_registrations)return 91;
+    }
     return 0;
 }

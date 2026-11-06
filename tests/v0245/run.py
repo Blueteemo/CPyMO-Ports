@@ -28,7 +28,7 @@ def offsets(core):
 
 def run(name, game, events=(), frames=600, mode='host', menu=False,
         core=None, scenario=None, copy=True, capture_every=None, harness=None, saves_seed=None,
-        sanitize=False, font_override=True, quiet=False, local_saves=False):
+        sanitize=False, font_override=True, quiet=False, local_saves=False, accept_async=False):
     out = batch / name
     out.mkdir()
     if copy:
@@ -45,6 +45,7 @@ def run(name, game, events=(), frames=600, mode='host', menu=False,
     env.update(CPYMO_DEBUG='1', CPYMO_TEST_FRAMES=str(frames),
                CPYMO_TEST_CAPTURE_EVERY=str(capture_every or frames))
     if quiet: env['CPYMO_TEST_QUIET']='1'
+    if accept_async: env['CPYMO_TEST_ACCEPT_ASYNC']='1'
     if capture_every is None:
         env['CPYMO_TEST_NO_CAPTURE'] = '1'
     if font_override:

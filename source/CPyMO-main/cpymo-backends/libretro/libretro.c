@@ -491,14 +491,23 @@ static void audio_set_state(bool enabled)
 void retro_set_environment(retro_environment_t cb)
 {
     struct retro_log_callback log;
+#ifndef GARLIC_MP3_AUDIO
     struct retro_audio_callback audio = {
         .callback = audio_callback,
         .set_state = audio_set_state,
     };
+#endif
     environ_cb = cb;
     if (environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log))
         frontend_log = log.log;
 
+#ifdef GARLIC_MP3_AUDIO
+    /* This decoder owns mutable FILE/ring/FIR state without a thread mutex.
+     * Use the mandatory single-thread batch interface even when the frontend
+     * would accept optional asynchronous callbacks. No frontend config edit. */
+    use_audio_callback=false;
+    audio_enabled=true;
+#else
     if (environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK, &audio)) {
         use_audio_callback = true;
 #ifndef GARLIC_NO_FFMPEG
@@ -511,6 +520,7 @@ void retro_set_environment(retro_environment_t cb)
         }
 #endif
     }
+#endif
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb)

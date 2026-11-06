@@ -37,6 +37,7 @@ python3 repo/tests/v0245/actual_games.py host
 python3 repo/tests/v0245/actual_games.py arm
 python3 repo/tests/v0245/actual_games.py host --sanitize
 python3 repo/tests/v0245/library_layout.py arm
+python3 repo/tests/v0245/async_policy.py
 python3 repo/tests/v0245/performance.py
 ```
 
