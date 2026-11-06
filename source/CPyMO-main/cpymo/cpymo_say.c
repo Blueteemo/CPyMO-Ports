@@ -1,4 +1,4 @@
-﻿#include "cpymo_prelude.h"
+#include "cpymo_prelude.h"
 #include "cpymo_say.h"
 #include "cpymo_rmenu.h"
 #include "cpymo_engine.h"
@@ -9,7 +9,7 @@
 #ifdef GARLIC_NO_FFMPEG
 /* Keep read-state distinction and the script's RGB colour, with less dimming
  * on the handheld screen. Unread text remains exactly full opacity. */
-const static float already_read_text_alpha = 0.85f;
+const static float already_read_text_alpha = 0.75f;
 #else
 const static float already_read_text_alpha = 0.6f;
 #endif

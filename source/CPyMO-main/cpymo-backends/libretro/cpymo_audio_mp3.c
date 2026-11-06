@@ -28,6 +28,7 @@
 #include "minimp3.h"
 
 #include <stdint.h>
+#include "garlic_audio_trace.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,6 +61,7 @@ typedef struct {
     stb_vorbis *vor;
     int wav_bits, wav_align;
     long wav_data_off, wav_data_len;
+    size_t wav_bytes_left;
     mp3dec_t dec;
     mp3dec_frame_info_t info;
     FILE *file;
@@ -69,6 +71,7 @@ typedef struct {
     int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME * 2];
     int16_t vorbuf[4096 * 2];
     size_t pcm_frames, pcm_cur;
+    uint64_t decoded_frames, output_frames;
     /* Windowed-sinc interpolator: TAPS source frames, a 256-phase kernel for
      * the current step, and the fractional read position. `fade` hides the
      * seam after a loop restart. */
@@ -125,6 +128,7 @@ static void ch_stream_rewind(garlic_mp3_channel *c)
         if (c->vor) stb_vorbis_seek_start(c->vor);
     }
     else if (c->kind == garlic_dec_wav) {
+        c->wav_bytes_left = (size_t)c->wav_data_len;
         if (c->file) fseek(c->file, c->wav_data_off, SEEK_SET);
         else if (c->has_reader)
             cpymo_package_stream_reader_seek((size_t)c->wav_data_off, &c->reader);
@@ -148,6 +152,8 @@ static bool ch_refill(garlic_mp3_channel *c)
 
     size_t want = GARLIC_AUDIO_RING - c->ring_len;
     size_t got;
+    if (c->kind == garlic_dec_wav && want > c->wav_bytes_left)
+        want = c->wav_bytes_left;
     if (c->has_reader)
         got = cpymo_package_stream_reader_read(
             (char *)c->ring + c->ring_len, want, &c->reader);
@@ -157,14 +163,12 @@ static bool ch_refill(garlic_mp3_channel *c)
         got = 0;
 
     c->ring_len += got;
+    if (c->kind == garlic_dec_wav) c->wav_bytes_left -= got;
     if (got) { c->tried_reload = false; return true; }
 
-    if (c->loop && !c->tried_reload) {
-        c->tried_reload = true;
-        ch_stream_rewind(c);
-        return ch_refill(c);
-    }
-
+    /* EOF belongs to the decoder/mixer boundary, not the read-ahead path.
+     * MP3 refill starts with <2048 bytes still buffered: rewinding here drops
+     * valid tail frames. Drain the tail first; ch_mix alone restarts loops. */
     c->eof = true;
     return false;
 }
@@ -192,6 +196,7 @@ static size_t ch_decode(garlic_mp3_channel *c)
                 GARLIC_AUDIO_OUT_RATE);
             if (!c->step) c->step = 1;
             ch_build_resampler(c);
+            c->decoded_frames += (size_t)n;
             c->pcm_frames = (size_t)n;
             c->pcm_cur = 0;
             return (size_t)n;
@@ -245,6 +250,7 @@ static error_t ch_play(
     c->frac = 0;
     c->fade = c->fade_len = 0;
     c->wav_data_off = c->wav_data_len = 0;
+    c->decoded_frames = c->output_frames = 0;
 
     /* Sniff the container: RIFF/WAVE, Ogg Vorbis or MPEG audio. */
     {
@@ -285,6 +291,7 @@ static error_t ch_play(
 #endif
     }
 
+    if (c->kind != garlic_dec_mp3) c->decoded_frames = 0;
     ch_set_name(c, name);
     c->active = true;
 #ifdef GARLIC_AUDIO_DEBUG
@@ -340,10 +347,12 @@ static error_t ch_open_wav(garlic_mp3_channel *c)
             if (!have_fmt || c->wav_align <= 0 || c->wav_bits != 16) {
                 return CPYMO_ERR_BAD_FILE_FORMAT;
             }
-            if (c->channels < 1 || c->channels > 2) return CPYMO_ERR_BAD_FILE_FORMAT;
+            if (c->channels < 1 || c->channels > 2 ||
+                c->wav_align != c->channels * 2) return CPYMO_ERR_BAD_FILE_FORMAT;
             if (c->rate < 8000 || c->rate > 96000) return CPYMO_ERR_BAD_FILE_FORMAT;
             c->wav_data_off = off + 8;
             c->wav_data_len = (long)sz;
+            c->wav_bytes_left = (size_t)sz;
             ch_seek_raw(c, (size_t)c->wav_data_off);
             c->ring_len = c->ring_pos = 0;
             return CPYMO_ERR_SUCC;
@@ -446,6 +455,7 @@ static bool ch_frame_vorbis(garlic_mp3_channel *c, int16_t *l, int16_t *r)
         int n = stb_vorbis_get_frame_short_interleaved(c->vor, c->channels,
             c->vorbuf, 4096);
         if (n <= 0) return false;
+        c->decoded_frames += (size_t)n;
         c->pcm_frames = (size_t)n;
         c->pcm_cur = 0;
     }
@@ -523,10 +533,24 @@ static bool ch_build_resampler(garlic_mp3_channel *c)
     return true;
 }
 
+static void ch_trace_bgm(const char *event, garlic_mp3_channel *c,
+    uint64_t output_frames, const cpymo_engine *e)
+{
+    if (c != &garlic_ch[CPYMO_AUDIO_CHANNEL_BGM]) return;
+    uint64_t cursor = c->decoded_frames - c->pcm_frames + c->pcm_cur;
+    if (c->kind == garlic_dec_wav && c->wav_align > 0)
+        cursor = ((size_t)c->wav_data_len - c->wav_bytes_left -
+            (c->ring_len - c->ring_pos)) / (size_t)c->wav_align;
+    garlic_audio_trace(event, c->name, output_frames, cursor,
+        c->file ? ftell(c->file) : -1, e);
+}
+
 /* Restart a looping stream without dropping a frame: repeat the last sample
  * into the window, rewind, and fade the new pass in over 4 ms. */
-static bool ch_loop_restart(garlic_mp3_channel *c)
+static bool ch_loop_restart(garlic_mp3_channel *c, uint64_t output_frames)
 {
+    ch_trace_bgm("loop", c, output_frames, NULL);
+    c->decoded_frames = 0;
     ch_stream_rewind(c);
     mp3dec_init(&c->dec);
     c->pcm_frames = c->pcm_cur = 0;
@@ -547,7 +571,7 @@ static void ch_mix(garlic_mp3_channel *c, int32_t *out, size_t frames)
     if (!c->primed) {
         for (int i = 0; i < GARLIC_AUDIO_RES_TAPS; ++i) {
             if (!ch_frame(c, &c->win[i][0], &c->win[i][1])) {
-                if (!c->loop || !ch_loop_restart(c)) { c->active = false; return; }
+                if (!c->loop || !ch_loop_restart(c, c->output_frames + produced)) { c->active = false; return; }
             }
         }
         c->primed = true;
@@ -590,10 +614,11 @@ static void ch_mix(garlic_mp3_channel *c, int32_t *out, size_t frames)
             }
             if (!ch_frame(c, &c->win[GARLIC_AUDIO_RES_TAPS - 1][0],
                     &c->win[GARLIC_AUDIO_RES_TAPS - 1][1])) {
-                if (!c->loop || !ch_loop_restart(c)) { c->active = false; break; }
+                if (!c->loop || !ch_loop_restart(c, c->output_frames + produced)) { c->active = false; break; }
             }
         }
     }
+    c->output_frames += produced;
 }
 
 void cpymo_audio_copy_mixed_samples(void *dst, size_t len, cpymo_audio_system *s)
@@ -714,7 +739,10 @@ error_t cpymo_audio_bgm_play(cpymo_engine *e, cpymo_str name, bool loop)
     char *path = NULL;
     error_t err = cpymo_assetloader_get_bgm_path(&path, name, &e->assetloader);
     if (err != CPYMO_ERR_SUCC) return err;
-    return ch_play(CPYMO_AUDIO_CHANNEL_BGM, path, NULL, name, loop);
+    error_t played = ch_play(CPYMO_AUDIO_CHANNEL_BGM, path, NULL, name, loop);
+    ch_trace_bgm(played == CPYMO_ERR_SUCC ? "play" : "failed",
+        &garlic_ch[CPYMO_AUDIO_CHANNEL_BGM], 0, e);
+    return played;
 }
 
 error_t cpymo_audio_se_play(cpymo_engine *e, cpymo_str name, bool loop)
@@ -756,6 +784,8 @@ error_t cpymo_audio_vo_play(cpymo_engine *e, cpymo_str name)
 void cpymo_audio_bgm_stop(struct cpymo_engine *e)
 {
     (void)e;
+    ch_trace_bgm("stop", &garlic_ch[CPYMO_AUDIO_CHANNEL_BGM],
+        garlic_ch[CPYMO_AUDIO_CHANNEL_BGM].output_frames, e);
     ch_stop(&garlic_ch[CPYMO_AUDIO_CHANNEL_BGM]);
 }
 

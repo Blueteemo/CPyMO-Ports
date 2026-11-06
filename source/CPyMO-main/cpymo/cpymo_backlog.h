@@ -37,6 +37,10 @@ error_t cpymo_backlog_record_write_text(
 	char *text,
 	float fontsize);
 
+/* Replace only a page body; speaker/voice ownership remains with the record. */
+void cpymo_backlog_record_replace_text(cpymo_backlog *, size_t index,
+	char *text, float fontsize);
+
 struct cpymo_engine;
 error_t cpymo_backlog_ui_enter(struct cpymo_engine *e);
 

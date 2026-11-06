@@ -75,6 +75,9 @@ error_t cpymo_textbox_init(
     o->typing_x = x;
     o->col = col;
     o->remain_text = text;
+    o->page_text = text;
+    o->page_backlog_index = SIZE_MAX;
+    o->reflowing = false;
     o->backlog = backlog;
 
     o->lines[0].begin_pool_index = 0;
@@ -176,6 +179,8 @@ void cpymo_textbox_draw(
 error_t cpymo_textbox_clear_page(cpymo_textbox *tb, cpymo_backlog *write_to_backlog)
 {
     cpymo_textbox_clear_chars_pool_and_lines(tb);
+    tb->page_text = tb->remain_text;
+    tb->page_backlog_index = SIZE_MAX;
     return CPYMO_ERR_SUCC;
 }
 
@@ -281,9 +286,10 @@ static error_t cpymo_textbox_add_char(cpymo_textbox *tb)
 
 TEXT_FADEIN_FINISHED:
     {
-        char *backlog_text = cpymo_textbox_get_backlog_text(tb);
+        char *backlog_text = tb->reflowing ? NULL : cpymo_textbox_get_backlog_text(tb);
         if (backlog_text) {
             assert(tb->backlog);
+            tb->page_backlog_index = tb->backlog->next_record_to_write;
             cpymo_backlog_record_write_text(
                 tb->backlog, backlog_text, tb->char_size);
         }
@@ -296,6 +302,41 @@ void cpymo_textbox_finalize(cpymo_textbox *tb)
     while (cpymo_textbox_add_char(tb) == CPYMO_ERR_SUCC);
     tb->timer = 0;
     tb->draw_cursor = true;
+}
+
+error_t cpymo_textbox_reflow(cpymo_textbox *tb, float character_size)
+{
+    if (!tb->chars_pool || tb->char_size == character_size) return CPYMO_ERR_SUCC;
+    cpymo_textbox next;
+    error_t err = cpymo_textbox_init(&next, tb->x, tb->y, tb->w, tb->h,
+        character_size, tb->col, tb->alpha, tb->page_text, tb->backlog);
+    CPYMO_THROW(err);
+    next.reflowing = true; /* Never append history while constructing a candidate. */
+    while ((err = cpymo_textbox_add_char(&next)) == CPYMO_ERR_SUCC);
+    if (err != CPYMO_ERR_NO_MORE_CONTENT) {
+        cpymo_textbox_free(&next, NULL);
+        return err;
+    }
+    if (tb->backlog && next.backlog_buf_size) {
+        char *text = cpymo_textbox_get_backlog_text(&next);
+        if (!text) {
+            cpymo_textbox_free(&next, NULL);
+            return CPYMO_ERR_OUT_OF_MEM;
+        }
+        if (tb->page_backlog_index == SIZE_MAX) {
+            next.page_backlog_index = tb->backlog->next_record_to_write;
+            cpymo_backlog_record_write_text(tb->backlog, text, character_size);
+        } else {
+            next.page_backlog_index = tb->page_backlog_index;
+            cpymo_backlog_record_replace_text(tb->backlog,
+                next.page_backlog_index, text, character_size);
+        }
+    }
+    next.reflowing = false;
+    next.draw_cursor = true;
+    cpymo_textbox_free(tb, NULL);
+    *tb = next;
+    return CPYMO_ERR_SUCC;
 }
 
 bool cpymo_textbox_wait_text_fadein(cpymo_engine *e, float dt, cpymo_textbox *which_textbox)
@@ -354,7 +395,8 @@ bool cpymo_textbox_wait_text_reading(cpymo_engine *e, float dt, cpymo_textbox *t
     bool go =
         CPYMO_INPUT_JUST_RELEASED(e, ok) 
         || cpymo_engine_skipping(e)
-        || CPYMO_INPUT_JUST_PRESSED(e, skip) 
+        || (CPYMO_INPUT_JUST_PRESSED(e, skip) &&
+            (!e->config_skip_already_read_only || e->say.current_say_is_already_read))
         || CPYMO_INPUT_JUST_RELEASED(e, mouse_button)
         || CPYMO_INPUT_JUST_RELEASED(e, down)
         || e->input.mouse_wheel_delta < 0;

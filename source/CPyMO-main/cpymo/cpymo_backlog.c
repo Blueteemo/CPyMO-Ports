@@ -145,6 +145,18 @@ error_t cpymo_backlog_record_write_text(
 	return CPYMO_ERR_SUCC;
 }
 
+void cpymo_backlog_record_replace_text(cpymo_backlog *b, size_t index,
+    char *text, float fontsize)
+{
+    assert(index < CPYMO_BACKLOG_MAX_RECORDS);
+    cpymo_backlog_record *rec = &b->records[index];
+    if (rec->text_render) cpymo_backend_text_free(rec->text_render);
+    free(rec->text);
+    rec->text_render = NULL;
+    rec->text = text;
+    rec->font_size = fontsize;
+}
+
 static void cpymo_backlog_ui_draw_node(const cpymo_engine *e, const void *node_to_draw, float y)
 {
 	const cpymo_backlog_record *rec = &e->backlog.records[

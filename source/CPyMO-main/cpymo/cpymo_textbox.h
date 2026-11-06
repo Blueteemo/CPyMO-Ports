@@ -17,6 +17,10 @@ typedef struct {
 	float x, y, w, h, char_size, alpha, typing_x;
 	cpymo_color col;
 	cpymo_str remain_text;
+	/* Source suffix at this page boundary; borrowed from the live script. */
+	cpymo_str page_text;
+	size_t page_backlog_index;
+	bool reflowing;
 
 	char *backlog_buf;
 	size_t backlog_buf_size, backlog_buf_max_size;
@@ -51,6 +55,9 @@ static inline bool cpymo_textbox_all_finished(cpymo_textbox *tb)
 { return tb->remain_text.len == 0; }
 
 void cpymo_textbox_finalize(cpymo_textbox *tb);
+
+/* Rebuild the current page transactionally, without advancing the script. */
+error_t cpymo_textbox_reflow(cpymo_textbox *tb, float character_size);
 
 bool cpymo_textbox_wait_text_fadein(struct cpymo_engine *, float, cpymo_textbox *which_textbox);
 bool cpymo_textbox_wait_text_reading(struct cpymo_engine *, float, cpymo_textbox *which_textbox);

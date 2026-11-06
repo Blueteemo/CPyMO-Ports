@@ -1,4 +1,4 @@
-﻿#include "cpymo_prelude.h"
+#include "cpymo_prelude.h"
 #include "cpymo_config_ui.h"
 #include "cpymo_engine.h"
 #include "cpymo_list_ui.h"
@@ -26,6 +26,7 @@ typedef struct {
 	/* Widest label of the list: labels share one right-aligned column so a
 	 * short label such as the text-speed row cannot drift to the left. */
 	float label_column_w;
+	float value_column_w;
 	float group_x, group_w;
 
 	cpymo_key_pluse left, right, ok, mouse_button;
@@ -90,7 +91,7 @@ static inline void cpymo_config_ui_calc_layout(
 
 	/* One value slot as wide as the widest value, rounded up to half a glyph,
 	 * so a value that grows a digit never pushes the buttons sideways. */
-	float max_value_width = 0;
+	float max_value_width = ui->value_column_w;
 	for (size_t i = 0; i < CONFIG_ITEMS; ++i)
 		if (max_value_width < ui->items[i].show_value_width &&
 			ui->items[i].show_inc_dec_button)
@@ -309,6 +310,7 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 	cpymo_backend_text show_name;
 
 	ui->label_column_w = 0;
+	ui->value_column_w = 0;
 	ui->group_x = 0;
 	ui->group_w = 0;
 	for (size_t i = 0; i < CONFIG_ITEMS; ++i)
@@ -340,6 +342,24 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 		}
 
 	const cpymo_localization *l = cpymo_localization_get(e);
+    /* Reserve every possible enum value, not only the currently shown one. */
+    for (int i = 0; i < 2; ++i) {
+        float w = cpymo_backend_text_width(cpymo_str_pure(l->config_skip_modes[i]), ui->font_size);
+        if (w > ui->value_column_w) ui->value_column_w = w;
+#ifdef GARLIC_NO_FFMPEG
+        const char *font = (unsigned char)l->config_fontsize[0] >= 128 ?
+            (i ? "大" : "小") : (i ? "Large" : "Small");
+        w = cpymo_backend_text_width(cpymo_str_pure(font), ui->font_size);
+        if (w > ui->value_column_w) ui->value_column_w = w;
+#endif
+    }
+
+    float reserved = cpymo_backend_text_width(cpymo_str_pure("100%"), ui->font_size);
+    if (reserved > ui->value_column_w) ui->value_column_w = reserved;
+    for (int i = 0; i < 6; ++i) {
+        reserved = cpymo_backend_text_width(cpymo_str_pure(l->config_sayspeeds[i]), ui->font_size);
+        if (reserved > ui->value_column_w) ui->value_column_w = reserved;
+    }
 
 	#ifdef LOW_FRAME_RATE
 	const static int min_say_speed = 5;
@@ -408,7 +428,7 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 		0, 
 		1, 
 		(int)e->config_skip_already_read_only,
-		false);
+		true);
 	
 	#undef INIT_ITEM
 }
@@ -513,7 +533,17 @@ JUST_REFRESH:
 		break;
 	case ITEM_FONT_SIZE:
 		#ifdef GARLIC_NO_FFMPEG
+        bool previous = e->gameconfig.garlic_font_large;
         e->gameconfig.garlic_font_large = val != 0;
+        if (e->say.textbox_usable) {
+            error_t reflow_err = cpymo_textbox_reflow(&e->say.textbox,
+                cpymo_gameconfig_font_size(&e->gameconfig));
+            if (reflow_err != CPYMO_ERR_SUCC) {
+                e->gameconfig.garlic_font_large = previous;
+                cpymo_config_ui_refresh_items(e);
+                return reflow_err;
+            }
+        }
         cpymo_config_ui_schedule_save(ui);
 #else
         e->gameconfig.fontsize = (uint16_t)val;
@@ -525,6 +555,7 @@ JUST_REFRESH:
 		break;
 	case ITEM_SKIP_ALREADY_READ_ONLY:
 		e->config_skip_already_read_only = val > 0;
+		cpymo_config_ui_schedule_save(ui);
 		break;
 	default: assert(false);
 	}

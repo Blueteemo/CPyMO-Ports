@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include "libretro.h"
+#include "garlic_audio_trace.h"
 
 #include "../../cpymo/cpymo_engine.h"
 #include "../../cpymo/cpymo_game_selector.h"
@@ -412,6 +413,19 @@ static void garlic_log(enum retro_log_level level, const char *fmt, ...)
         if (level >= RETRO_LOG_ERROR) fflush(garlic_log_file);
     }
 }
+void garlic_audio_trace(const char *event, const char *name,
+    uint64_t output_frames, uint64_t source_cursor, long file_offset,
+    const cpymo_engine *e)
+{
+    if (!garlic_debug) return;
+    log_cb(RETRO_LOG_INFO,
+        "BGM event=%s name=%s out48k=%llu source=%llu file=%ld script=%s line=%u\n",
+        event, name ? name : "", (unsigned long long)output_frames,
+        (unsigned long long)source_cursor, file_offset,
+        e && e->interpreter ? e->interpreter->script->script_name : "-",
+        e && e->interpreter ? (unsigned)e->interpreter->script_parser.cur_line : 0);
+}
+
 /* Linear gain after the existing mixer/resampler, identical for all channels.
  * A 0..100% gain cannot introduce clipping or alter game channel settings. */
 static void garlic_output_gain(int16_t *samples, size_t count)
@@ -502,7 +516,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
     info->need_fullpath = true;
     info->valid_extensions = "txt|/";
-    info->library_version = "0.24.2";
+    info->library_version = "0.24.3";
     info->library_name = "CPyMO";
     info->block_extract = false;
 }

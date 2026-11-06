@@ -1,0 +1,17 @@
+{
+  "repository": "Blueteemo/CPyMO",
+  "ref": "nds-v1.2.0",
+  "files": [
+    {
+      "path": "cpymo-backends/nds/source/audio-nds.c",
+      "git_blob": "3da9e617a72646dc41abce7494e7eab3d5492dea",
+      "url": "https://github.com/Blueteemo/CPyMO/blob/nds-v1.2.0/cpymo-backends/nds/source/audio-nds.c"
+    },
+    {
+      "path": "cpymo-tool/nds-converter/convert.py",
+      "git_blob": "0fbc7ad76ee382f1278c7a4c30412ee96cc39655",
+      "url": "https://github.com/Blueteemo/CPyMO/blob/nds-v1.2.0/cpymo-tool/nds-converter/convert.py"
+    }
+  ],
+  "pc_source": "source/CPyMO-main/cpymo-backends/sdl2/cpymo_backend_audio_sdl2_mixer.c in inherited baseline; source/CPyMO-main/cpymo/cpymo_audio.c"
+}
