@@ -28,7 +28,8 @@
 #   CPYMO_LOG             the log file
 #
 # Exit codes: 0 ran, 41/42/43 missing files (see below), 44 no writable cwd,
-#            45 could not decide which game, 46 the log is not writable.
+#            45 could not decide which game, 46 log unavailable,
+#            47 private launch configuration could not be prepared.
 set -u
 
 APPDIR="${0%/*}"
@@ -162,6 +163,84 @@ APPEND_CONFIG="$APPHOME/retroarch-cpymo.cfg"
 RA_CONFIG="${CPYMO_RETROARCH_CONFIG:-$RA_ROOT/.retroarch/retroarch.cfg}"
 [ -f "$RA_CONFIG" ] || RA_CONFIG="$RA_ROOT/retroarch.cfg"
 
+# GarlicOS saves the device's RA gain independently. The APPS shell branch
+# skips the frontend merge, so read it ourselves, without editing either file.
+VOLUME_CONFIG="$RA_ROOT/.retroarch/volume.cfg"
+RUNTIME_DIR=''
+RA_PID=''
+cleanup_runtime() {
+    [ -n "$RUNTIME_DIR" ] || return 0
+    rm -f "$RUNTIME_DIR/volume.input" "$RUNTIME_DIR/session.cfg"
+    rmdir "$RUNTIME_DIR" 2>/dev/null || :
+}
+stop_retroarch() {
+    if [ -n "$RA_PID" ]; then
+        kill -TERM "$RA_PID" 2>/dev/null || :
+        wait "$RA_PID" 2>/dev/null || :
+        RA_PID=''
+    fi
+}
+prepare_session_config() {
+    # Volatile and unique: no TF-card configuration writes or stale carry-over.
+    RUNTIME_DIR="$(umask 077; mktemp -d /tmp/cpymo-ra.XXXXXX)" || return 1
+    [ -n "$RUNTIME_DIR" ] && [ -d "$RUNTIME_DIR" ] || return 1
+    trap 'cleanup_runtime' 0
+    trap 'stop_retroarch; exit 129' HUP
+    trap 'stop_retroarch; exit 130' INT
+    trap 'stop_retroarch; exit 143' TERM
+    SESSION_CONFIG="$RUNTIME_DIR/session.cfg"
+    VOLUME_DB='0.000000'
+    VOLUME_STATUS='missing_or_unreadable'
+    if [ -f "$VOLUME_CONFIG" ] && [ -r "$VOLUME_CONFIG" ]; then
+        # Snapshot at most 1025 bytes once. Concurrent/partial firmware writes
+        # are rejected, never executed or passed through as configuration.
+        VOLUME_STATUS='read_error'
+        if dd if="$VOLUME_CONFIG" of="$RUNTIME_DIR/volume.input" bs=1025 count=1 2>/dev/null; then
+            bytes="$(wc -c < "$RUNTIME_DIR/volume.input")"
+            VOLUME_STATUS='too_large'
+            if [ "$bytes" -le 1024 ]; then
+                bad_bytes="$(LC_ALL=C tr -d '\011\012\015\040-\176' < "$RUNTIME_DIR/volume.input" | wc -c)"
+                VOLUME_STATUS='invalid_bytes'
+                if [ "$bad_bytes" -eq 0 ]; then
+                    VOLUME_STATUS='invalid_format_or_range'
+                    parsed_db="$(LC_ALL=C awk '
+                        NR > 16 { bad = 1 }
+                        { sub(/\r$/, "") }
+                        /^[ \t]*$/ { next }
+                        /^[ \t]*#[ \t]*(include|reference)([ \t]|$)/ { bad = 1; next }
+                        /^[ \t]*#/ { next }
+                        {
+                            if ($0 !~ /^[ \t]*audio_volume[ \t]*=[ \t]*"[-+]?[0-9]+([.][0-9]+)?"[ \t]*(#.*)?$/) {
+                                bad = 1; next
+                            }
+                            value = $0
+                            sub(/^[^"]*"/, "", value)
+                            sub(/".*$/, "", value)
+                            digits = value
+                            sub(/^[-+]/, "", digits)
+                            split(digits, parts, /[.]/)
+                            if (length(parts[1]) > 3 || length(parts[2]) > 6 ||
+                                value + 0 < -80 || value + 0 > 12) bad = 1
+                            count++
+                        }
+                        END {
+                            if (bad || count != 1) exit 1
+                            printf "%.6f\n", value + 0
+                        }
+                    ' "$RUNTIME_DIR/volume.input" 2>/dev/null)" && {
+                        VOLUME_DB="$parsed_db"
+                        VOLUME_STATUS='inherited'
+                    }
+                fi
+            fi
+        fi
+    fi
+    # A damaged/missing independent value must not resurrect positive stale
+    # global gain. Neutral RA 0 dB is the fallback; CPyMO stays at its 50% gain.
+    (umask 077; printf 'audio_volume = "%s"\nconfig_save_on_exit = "false"\nauto_overrides_enable = "false"\n' "$VOLUME_DB" > "$SESSION_CONFIG") || return 1
+    return 0
+}
+
 # --- saves ---------------------------------------------------------
 # Android/GarlicOS cards are mounted read-only in places; the historical
 # in-game "save" directory needs the GAME directory to be writable. If a
@@ -186,6 +265,7 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
 {
     echo '=== CPyMO RG35XX GarlicOS/uClibc launcher ==='
+    echo 'launcher_revision=0.24.3a'
     echo "time=$(date 2>/dev/null)"
     echo "script=$0"
     echo "launcher=$SELF"
@@ -229,12 +309,31 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
     echo 'stage=launching_retroarch_libretro'
     cd "$RA_ROOT" || exit 44
-    # Append only for this CPyMO process; never save over global RA settings.
+    prepare_session_config || {
+        echo 'stage=refused_private_config'; exit 47;
+    }
+    echo "ra_config=$RA_CONFIG"
+    echo "volume_config=$VOLUME_CONFIG"
+    echo "volume_status=$VOLUME_STATUS"
+    echo "ra_audio_volume_db=$VOLUME_DB"
+    echo "cpymo_output_percent=$CPYMO_OUTPUT_PERCENT"
+    # In RA 1.14.0, ONE append argument holds a | separated list. The last
+    # file wins. Repeated --appendconfig options would discard earlier ones.
+    # Auto overrides are disabled only here, so they cannot replace this gain
+    # or turn config_save_on_exit back on after the append pass.
+    case "$APPEND_CONFIG$SESSION_CONFIG" in
+        *'|'*) echo 'stage=refused_append_path_separator'; exit 47 ;;
+    esac
     set -- -L "$CORE"
     [ ! -r "$RA_CONFIG" ] || set -- "$@" --config "$RA_CONFIG"
-    [ ! -r "$APPEND_CONFIG" ] || set -- "$@" --appendconfig "$APPEND_CONFIG"
-    "$RA_BIN" "$@" "$GAMEDIR" >/dev/null 2>&1
+    append_list="$SESSION_CONFIG"
+    [ ! -r "$APPEND_CONFIG" ] || append_list="$APPEND_CONFIG|$SESSION_CONFIG"
+    set -- "$@" --appendconfig "$append_list"
+    "$RA_BIN" "$@" "$GAMEDIR" >/dev/null 2>&1 &
+    RA_PID=$!
+    wait "$RA_PID"
     result=$?
+    RA_PID=''
     echo "stage=retroarch_exited exit_code=$result"
     exit "$result"
 } > "$LOG" 2>&1
