@@ -10,6 +10,19 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifdef GARLIC_NO_FFMPEG
+#define RMENU_ITEMS 10
+extern void garlic_request_library(void);
+static error_t garlic_confirm_library(cpymo_engine *e, void *data, bool confirmed)
+{
+    (void)e; (void)data;
+    if (confirmed) garlic_request_library();
+    return CPYMO_ERR_SUCC;
+}
+#else
+#define RMENU_ITEMS 9
+#endif
+
 #ifdef __3DS__
 extern bool fill_screen_enabled;
 const extern bool fill_screen;
@@ -139,6 +152,10 @@ static void cpymo_rmenu_delete(cpymo_engine *e, void *ui_data)
 error_t cpymo_rmenu_restart_game(cpymo_engine *e, void *data, bool confirm)
 {
 	if (!confirm) return CPYMO_ERR_SUCC;
+#ifdef GARLIC_NO_FFMPEG
+    extern error_t garlic_queue_game(const char *gamedir);
+    return garlic_queue_game(e->assetloader.gamedir);
+#else
 	char *gamedir = 
 		cpymo_str_copy_malloc(cpymo_str_pure(e->assetloader.gamedir));
 	if (gamedir == NULL) return CPYMO_ERR_OUT_OF_MEM;
@@ -148,6 +165,7 @@ error_t cpymo_rmenu_restart_game(cpymo_engine *e, void *data, bool confirm)
 	free(gamedir);
 
 	return err;
+#endif
 }
 
 static error_t cpymo_rmenu_ok(cpymo_engine *e, int sel, uint64_t hash, bool _)
@@ -171,6 +189,12 @@ static error_t cpymo_rmenu_ok(cpymo_engine *e, int sel, uint64_t hash, bool _)
 		break;
 	
 	case 8: cpymo_ui_exit(e); break;
+#ifdef GARLIC_NO_FFMPEG
+    case 9:
+        cpymo_ui_exit(e);
+        return cpymo_msgbox_ui_enter(e, cpymo_str_pure("返回游戏列表？未保存的进度将丢失。"),
+            &garlic_confirm_library, NULL);
+#endif
 	default:
 		assert(false);
 	}
@@ -185,7 +209,7 @@ static inline float cpymo_rmenu_bg_zoom(
 	#ifdef DISABLE_IMAGE_SCALING
 	return 1.0f;
 	#else
-	const size_t menu_items = 9;
+	const size_t menu_items = RMENU_ITEMS;
 	const float menu_item_padding = 2.0f;
 	const float menu_padding = 16.0f;
 	const float menu_height =
@@ -248,7 +272,7 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
 
 	err = cpymo_select_img_configuare_begin(
 		&rmenu->menu,
-		9,
+		RMENU_ITEMS,
 		cpymo_str_pure(""),
 		&e->assetloader,
 		&e->gameconfig);
@@ -289,6 +313,9 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
 	RMENU_ITEM(6, l->rmenu_config, true)
 	RMENU_ITEM(7, l->rmenu_restart, true);
 	RMENU_ITEM(8, l->rmenu_back_to_game, true);
+#ifdef GARLIC_NO_FFMPEG
+    RMENU_ITEM(9, "返回游戏列表", true);
+#endif
 
 	float xywh[4] = {
 		((float)e->gameconfig.imagesize_w - (float)rmenu->bg_w) / 2,

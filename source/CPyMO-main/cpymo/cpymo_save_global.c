@@ -177,19 +177,32 @@ error_t cpymo_save_global_save(cpymo_engine *e)
 static void garlic_font_load(cpymo_engine *e)
 {
     e->gameconfig.garlic_font_large = false;
+    e->gameconfig.garlic_read_gray = false;
     FILE *f = cpymo_backend_read_save(e->assetloader.gamedir, "rg35xx-ui.cfg");
     if (!f) return;
-    char buf[32] = {0}; size_t n = fread(buf, 1, sizeof(buf)-1, f); fclose(f);
-    if (n == strlen("CPYMO_UI_1\nfont=large\n") &&
-        !strcmp(buf, "CPYMO_UI_1\nfont=large\n"))
+    char buf[128] = {0}; size_t n = fread(buf, 1, sizeof(buf)-1, f); fclose(f);
+    if (n == sizeof(buf)-1) return;
+    if (!strcmp(buf, "CPYMO_UI_1\nfont=large\n")) {
         e->gameconfig.garlic_font_large = true;
+        return;
+    }
+    char font[8]; unsigned gray; int end = 0;
+    if (sscanf(buf, "CPYMO_UI_2\nfont=%7s\nread_gray=%u\n%n", font, &gray, &end) == 2
+        && end == (int)n && gray <= 1 &&
+        (!strcmp(font, "small") || !strcmp(font, "large"))) {
+        e->gameconfig.garlic_font_large = !strcmp(font, "large");
+        e->gameconfig.garlic_read_gray = gray != 0;
+    }
 }
 static error_t garlic_font_save(const cpymo_engine *e)
 {
     FILE *f = cpymo_backend_write_save(e->assetloader.gamedir, "rg35xx-ui.cfg");
     if (!f) return CPYMO_ERR_CAN_NOT_OPEN_FILE;
-    const char *v = e->gameconfig.garlic_font_large ?
-        "CPYMO_UI_1\nfont=large\n" : "CPYMO_UI_1\nfont=small\n";
+    char buf[96];
+    snprintf(buf, sizeof(buf), "CPYMO_UI_2\nfont=%s\nread_gray=%u\n",
+        e->gameconfig.garlic_font_large ? "large" : "small",
+        (unsigned)e->gameconfig.garlic_read_gray);
+    const char *v = buf;
     bool ok = fwrite(v, 1, strlen(v), f) == strlen(v);
     if (fclose(f) != 0) ok = false;
     return ok ? CPYMO_ERR_SUCC : CPYMO_ERR_UNKNOWN;

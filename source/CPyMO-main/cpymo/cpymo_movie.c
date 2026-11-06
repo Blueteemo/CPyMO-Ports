@@ -389,6 +389,11 @@ error_t cpymo_movie_play(cpymo_engine * e, cpymo_str videoname)
 #ifdef DISABLE_MOVIE
 error_t cpymo_movie_play(cpymo_engine * e, cpymo_str videoname)
 {
+#ifdef GARLIC_MP3_AUDIO
+    extern error_t garlic_movie_play(cpymo_engine *, cpymo_str);
+    return garlic_movie_play(e, videoname);
+#else
 	return CPYMO_ERR_SUCC;
+#endif
 }
 #endif

@@ -55,4 +55,9 @@ bool garlic_blit_rgb565(uint16_t *dst, size_t dst_pitch_bytes,
                         const uint8_t *src, size_t src_pitch_bytes,
                         int src_w, int src_h);
 
+/* Area sampling only for shrinking the composed image. The separate native
+   resolution text layer is composited afterward and is never filtered. */
+bool garlic_blit_rgb565_quality(uint16_t *, size_t, int, int,
+    const uint8_t *, size_t, int, int);
+
 #endif

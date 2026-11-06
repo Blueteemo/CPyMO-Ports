@@ -1351,7 +1351,7 @@ static error_t cpymo_interpreter_dispatch(cpymo_str command, cpymo_interpreter *
 		cpymo_audio_se_stop(engine);
 
 		float vol = cpymo_audio_get_channel_volume(
-			CPYMO_AUDIO_CHANNEL_VO, &engine->audio);
+			CPYMO_AUDIO_CHANNEL_SE, &engine->audio);
 
 		if (isloop || (!cpymo_engine_skipping(engine) && vol > 0)) {
 			error_t err = cpymo_audio_se_play(engine, filename, isloop);

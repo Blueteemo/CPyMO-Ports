@@ -669,10 +669,9 @@ bool cpymo_audio_channel_get_samples(
 
 void cpymo_audio_init(cpymo_audio_system *s)
 {
-    (void)s;
+    if (garlic_audio_ready) cpymo_audio_free(s);
     for (int i = 0; i < CPYMO_AUDIO_MAX_CHANNELS; ++i) {
         garlic_mp3_channel *c = &garlic_ch[i];
-        if (garlic_audio_ready) ch_stop(c);
         memset(c, 0, sizeof(*c));
         c->volume = 1.0f;
     }
@@ -686,6 +685,11 @@ void cpymo_audio_free(cpymo_audio_system *s)
         ch_stop(&garlic_ch[i]);
         free(garlic_ch[i].name);
         garlic_ch[i].name = NULL;
+        free(garlic_ch[i].ring);
+        garlic_ch[i].ring = NULL;
+        free(garlic_ch[i].res_tab);
+        garlic_ch[i].res_tab = NULL;
+        garlic_ch[i].res_step = 0;
     }
     garlic_audio_ready = 0;
 }
@@ -804,15 +808,19 @@ void cpymo_audio_vo_stop(struct cpymo_engine *e)
 const char *cpymo_audio_get_bgm_name(struct cpymo_engine *e)
 {
     (void)e;
-    return garlic_ch[CPYMO_AUDIO_CHANNEL_BGM].name
+    return garlic_ch[CPYMO_AUDIO_CHANNEL_BGM].active && garlic_ch[CPYMO_AUDIO_CHANNEL_BGM].name
         ? garlic_ch[CPYMO_AUDIO_CHANNEL_BGM].name : "";
 }
 
 const char *cpymo_audio_get_se_name(struct cpymo_engine *e)
 {
     (void)e;
-    return garlic_ch[CPYMO_AUDIO_CHANNEL_SE].name
-        ? garlic_ch[CPYMO_AUDIO_CHANNEL_SE].name : "";
+    /* The legacy save slot stores only a persistent, looping SE name; load
+       restores that field with loop=true. Never serialize a one-shot (even
+       while it is playing) or a retained name after EOF/stop. This matches
+       the generic backend without changing old slot layouts. */
+    garlic_mp3_channel *c = &garlic_ch[CPYMO_AUDIO_CHANNEL_SE];
+    return c->active && c->loop && c->name ? c->name : "";
 }
 
 error_t cpymo_audio_play_video(struct cpymo_engine *e, const char *path)

@@ -20,6 +20,7 @@
 #include "../../cpymo/cpymo_game_selector.h"
 #include "../../cpymo/cpymo_config_ui.h"
 #include "../../cpymo/cpymo_save.h"
+#include "../../cpymo/garlic_movie.h"
 #include "../../endianness.h/endianness.h"
 #include "../software/cpymo_backend_software.h"
 #include "../include/cpymo_backend_audio.h"
@@ -80,6 +81,26 @@ static garlic_screen_t              garlic_screen = GARLIC_SCREEN_NONE;
 /* The game the selector chose, so a reload (RetroArch replaying the same
  * content) and the log can name it. */
 static char                        garlic_selected_game[PATH_MAX];
+static char                        garlic_pending_game[PATH_MAX];
+static bool                        garlic_library_requested;
+static bool                        garlic_exit_requested;
+static error_t                     garlic_abort_error;
+
+error_t garlic_queue_game(const char *gamedir)
+{
+    if (!gamedir || strlen(gamedir) >= sizeof(garlic_pending_game))
+        return CPYMO_ERR_INVALID_ARG;
+    strcpy(garlic_pending_game, gamedir);
+    return CPYMO_ERR_SUCC;
+}
+
+void garlic_request_library(void) { garlic_library_requested = true; }
+void garlic_abort_game(error_t cause) { garlic_abort_error = cause; }
+
+void garlic_movie_log(const char *message)
+{
+    log_cb(RETRO_LOG_INFO, "%s\n", message);
+}
 /* Menu geometry, at the OUTPUT size, from §4 of the v0.23 task. Drawing the
  * menu at 640x480 makes the RGB565 blit an exact 1:1 copy, so the menu
  * cannot be blurred by the scaler it is used to choose games for. */
@@ -169,6 +190,8 @@ static float                           delta      = 1.0f / 60.0f;
 /* Short-lived on-screen notice for one-shot keys (quick save/load, auto play).
  * Drawn over the finished canvas, so it never disturbs engine layout. */
 static cpymo_backend_text garlic_toast_text;
+static cpymo_backend_text garlic_library_footer;
+static void garlic_toast_clear(void);
 static float             garlic_toast_left;
 static float             garlic_toast_w, garlic_toast_h;
 static uint32_t          garlic_prev_buttons;
@@ -516,7 +539,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
     info->need_fullpath = true;
     info->valid_extensions = "txt|/";
-    info->library_version = "0.24.3";
+    info->library_version = "0.24.4";
     info->library_name = "CPyMO";
     info->block_extract = false;
 }
@@ -919,6 +942,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
         char *path = dirs[i];       /* ownership moves into the item */
         if (cpymo_game_selector_item_create(&item, &path) != CPYMO_ERR_SUCC) {
             free(path);
+            for (size_t j = i + 1; j < count; ++j) free(dirs[j]);
             cpymo_game_selector_item_free_all(items);
             return false;
         }
@@ -934,7 +958,8 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     /* The menu needs a font OF ITS OWN, before any game has been chosen:
      * <games_root>/system/default.ttf is a candidate, and an explicit
      * CPYMO_MENU_FONT outranks it. */
-    if (cpymo_backend_font_init(games_root, NULL) != CPYMO_ERR_SUCC) {
+    if (cpymo_backend_font_init(games_root,
+            initial_game && initial_game[0] ? initial_game : items->gamedir) != CPYMO_ERR_SUCC) {
         log_cb(RETRO_LOG_ERROR,
                "no usable font for the menu (%s/system/default.ttf, "
                "$" GARLIC_MENU_FONT_ENV ")\n", games_root);
@@ -966,6 +991,9 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     garlic_game_loaded = true;
     garlic_first_frame = true;
     garlic_screen = GARLIC_SCREEN_MENU;
+    float footer_width;
+    cpymo_backend_text_create(&garlic_library_footer, &footer_width,
+        cpymo_str_pure("CPyMO 0.24.4   A：启动   ↑↓：选择   B：退出"), 16);
     garlic_prof_reset();
     {
         uint64_t now = garlic_micros();
@@ -976,10 +1004,75 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     return true;
 }
 
+static void garlic_toast(const char *text);
+
+/* Called only after cpymo_engine_update returns: every active UI, decoder,
+   image and glyph is released with its original context and save directory. */
+static bool garlic_return_to_library(error_t cause)
+{
+    char root[PATH_MAX], selected[PATH_MAX];
+    snprintf(root, sizeof(root), "%s", garlic_menu_root);
+    snprintf(selected, sizeof(selected), "%s", garlic_selected_game);
+    retro_unload_game();
+    memset(&engine, 0, sizeof(engine));
+    memset(&input, 0, sizeof(input));
+    garlic_pending_game[0] = 0;
+    garlic_library_requested = false;
+    garlic_abort_error = CPYMO_ERR_SUCC;
+    garlic_drain_buttons = true;
+    if (!getcwd(garlic_previous_directory, sizeof(garlic_previous_directory)))
+        return false;
+    snprintf(garlic_menu_root, sizeof(garlic_menu_root), "%s", root);
+    if (!root[0] || !garlic_open_menu(root, selected)) return false;
+    if (cause != CPYMO_ERR_SUCC && cause != CPYMO_ERR_NO_MORE_CONTENT) {
+        char message[180];
+        snprintf(message, sizeof(message), "游戏启动或运行失败：%s", cpymo_error_message(cause));
+        garlic_toast(message);
+        garlic_toast_left = 4.0f;
+    }
+    log_cb(RETRO_LOG_INFO, "CPYMO_RETURN_LIBRARY reason=%d\n", (int)cause);
+    return true;
+}
+
+static error_t garlic_start_queued_game(void)
+{
+    uint64_t begin = garlic_micros();
+    char gamedir[PATH_MAX];
+    snprintf(gamedir, sizeof(gamedir), "%s", garlic_pending_game);
+    garlic_pending_game[0] = 0;
+    if (garlic_engine_ready) cpymo_engine_free(&engine);
+    garlic_engine_ready = false;
+    garlic_toast_clear();
+    memset(&engine, 0, sizeof(engine));
+    memset(&input, 0, sizeof(input));
+    garlic_drain_buttons = true;
+    if (chdir(gamedir) != 0) return CPYMO_ERR_CAN_NOT_OPEN_FILE;
+    garlic_directory_changed = true;
+    garlic_make_save_dir(gamedir, garlic_get_save_root());
+    garlic_diagnostics_begin(gamedir);
+    snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", gamedir);
+    uint64_t engine_begin = garlic_micros();
+    error_t err = cpymo_engine_init(&engine, gamedir);
+    uint64_t engine_end = garlic_micros();
+    if (err != CPYMO_ERR_SUCC) {
+        cpymo_audio_free(&engine.audio);
+        return err;
+    }
+    garlic_engine_ready = true;
+    err = garlic_after_game_selected(gamedir);
+    log_cb(RETRO_LOG_INFO, "CPYMO_SWITCH game=%s result=%d total_us=%llu engine_us=%llu backend_us=%llu\n",
+        gamedir, (int)err, (unsigned long long)(garlic_micros() - begin),
+        (unsigned long long)(engine_end - engine_begin),
+        (unsigned long long)(garlic_micros() - engine_end));
+    if (err == CPYMO_ERR_SUCC) garlic_prof_reset();
+    return err;
+}
+
 bool retro_load_game(const struct retro_game_info *game)
 {
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.4 font_steps=86/100 movie=AVI-MJPEG-PCM\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
@@ -990,6 +1083,11 @@ bool retro_load_game(const struct retro_game_info *game)
     error_t err;
     if (garlic_game_loaded || garlic_engine_ready)
         retro_unload_game();
+    garlic_pending_game[0] = 0;
+    garlic_library_requested = garlic_exit_requested = false;
+    garlic_abort_error = CPYMO_ERR_SUCC;
+    garlic_menu_root[0] = 0;
+    garlic_selected_game[0] = 0;
     if (!game || !game->path || !garlic_pixel_format_supported)
         return false;
 
@@ -1061,6 +1159,22 @@ bool retro_load_game(const struct retro_game_info *game)
 
     if (!getcwd(garlic_previous_directory, sizeof(garlic_previous_directory))) {
         log_cb(RETRO_LOG_ERROR, "getcwd: %s\n", strerror(errno));
+        return false;
+    }
+    /* Even explicit single-game content starts at the library by default.
+       CPYMO_MENU=0 remains an explicit diagnostic/direct-load override. */
+    const char *menu = getenv(GARLIC_MENU_ENV);
+    if (!menu || (menu[0] != '0' && menu[0] != 'n' && menu[0] != 'N')) {
+        char parent[PATH_MAX];
+        snprintf(parent, sizeof(parent), "%s", gamedir);
+        char *slash = strrchr(parent, '/');
+        if (slash && slash != parent) *slash = 0;
+        else strcpy(parent, "/");
+        if (garlic_games_dir(getenv(GARLIC_GAMES_DIR_ENV), parent, GARLIC_GAMES_DIR,
+                garlic_menu_root, sizeof(garlic_menu_root)) &&
+            garlic_open_menu(garlic_menu_root, gamedir)) return true;
+        log_cb(RETRO_LOG_ERROR, "could not open game library\n");
+        retro_unload_game();
         return false;
     }
     if (chdir(gamedir) != 0) {
@@ -1230,6 +1344,9 @@ static void input_update(void)
     garlic_actions a = garlic_map_buttons(b, cpymo_ui_enabled(&engine),
         script_menu, pick_a_slot);
     uint32_t pressed = b & ~garlic_prev_buttons;
+    if (garlic_screen == GARLIC_SCREEN_MENU && !garlic_drain_buttons &&
+        (pressed & GARLIC_BUTTON_B))
+        garlic_exit_requested = true;
     a.quick_save = a.quick_save && (pressed & GARLIC_BUTTON_R2);
     a.quick_load = a.quick_load && (pressed & GARLIC_BUTTON_L2);
     a.auto_play = a.auto_play && (pressed & GARLIC_BUTTON_Y);
@@ -1282,8 +1399,17 @@ void retro_run(void)
     input_poll_cb();
     input_update();
 
+    if (garlic_exit_requested) {
+        environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
+        return;
+    }
+
     uint64_t tick = garlic_micros();
     error_t err = cpymo_engine_update(&engine, delta, &redraw);
+    if (garlic_abort_error != CPYMO_ERR_SUCC) {
+        err = garlic_abort_error;
+        garlic_abort_error = CPYMO_ERR_SUCC;
+    }
     uint64_t after_update = garlic_micros();
     garlic_prof_update_us += after_update - tick;
     if (err != CPYMO_ERR_SUCC) {
@@ -1293,10 +1419,21 @@ void retro_run(void)
         fprintf(stderr, "DBG err=%d\n", (int)err);
 #endif
     }
-    if (err == CPYMO_ERR_NO_MORE_CONTENT)
-        environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
+    if (garlic_pending_game[0]) {
+        err = garlic_start_queued_game();
+        redraw = true;
+    }
+    if (garlic_library_requested || err != CPYMO_ERR_SUCC) {
+        if (!garlic_return_to_library(err)) {
+            log_cb(RETRO_LOG_ERROR, "cannot recover game library\n");
+            environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
+            return;
+        }
+        redraw = true;
+    }
 
-    if (cpymo_ui_enabled(&engine)) garlic_toast_clear();
+    if (cpymo_ui_enabled(&engine) && garlic_screen == GARLIC_SCREEN_GAME)
+        garlic_toast_clear();
     if (garlic_toast_left > 0) {
         redraw = true;
         garlic_toast_left -= delta;
@@ -1306,10 +1443,13 @@ void retro_run(void)
         garlic_prof_draws++;
         tick = garlic_micros();
         cpymo_engine_draw(&engine);
+        if (garlic_screen == GARLIC_SCREEN_MENU && garlic_library_footer)
+            cpymo_backend_text_draw(garlic_library_footer, 16, 478,
+                cpymo_color_white, 1.0f, cpymo_backend_image_draw_type_ui_element);
         garlic_toast_draw();
         uint64_t after_draw = garlic_micros();
         garlic_prof_draw_us += after_draw - tick;
-        if (!garlic_blit_rgb565(garlic_rgb565_frame, GARLIC_OUTPUT_WIDTH * 2,
+        if (!garlic_blit_rgb565_quality(garlic_rgb565_frame, GARLIC_OUTPUT_WIDTH * 2,
             GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT, soft_image.pixels,
             soft_image.line_stride, soft_image.w, soft_image.h)) {
             log_cb(RETRO_LOG_ERROR, "GarlicOS: frame conversion failed\n");
@@ -1330,13 +1470,18 @@ void retro_run(void)
 #ifdef GARLIC_UI_DEBUG
     if (garlic_prof_frames % 1 == 0) fprintf(stderr, "DBG run end\n");
 #endif
+    tick = garlic_micros();
+    bool movie_audio = false;
+#ifdef GARLIC_MP3_AUDIO
+    movie_audio = garlic_movie_audio(audio_buffer, samples);
+#endif
     if (audio_enabled && !use_audio_callback) {
-        tick = garlic_micros();
-        cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
+        if (!movie_audio)
+            cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
         garlic_output_gain(audio_buffer, samples * 2);
         audio_batch_cb(audio_buffer, samples);
-        garlic_prof_audio_us += garlic_micros() - tick;
     }
+    garlic_prof_audio_us += garlic_micros() - tick;
 }
 
 size_t retro_serialize_size(void)
@@ -1372,6 +1517,8 @@ void retro_unload_game(void)
         garlic_engine_ready = false;
     }
     garlic_toast_clear();
+    if (garlic_library_footer) cpymo_backend_text_free(garlic_library_footer);
+    garlic_library_footer = NULL;
     free(garlic_text_layer); garlic_text_layer = NULL;
     if (garlic_log_file) fclose(garlic_log_file);
     garlic_log_file = NULL; garlic_log_path[0] = 0;
@@ -1380,6 +1527,7 @@ void retro_unload_game(void)
     garlic_rgb565_frame = NULL;
     garlic_first_frame = false;
     garlic_game_loaded = false;
+    garlic_screen = GARLIC_SCREEN_NONE;
     if (soft_image.pixels) {
         free(soft_image.pixels);
         soft_image.pixels = NULL;

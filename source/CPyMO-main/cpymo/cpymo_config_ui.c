@@ -7,7 +7,11 @@
 #include <assert.h>
 #include <math.h>
 
+#ifdef GARLIC_NO_FFMPEG
+#define CONFIG_ITEMS 7
+#else
 #define CONFIG_ITEMS 6
+#endif
 
 typedef struct {
 	cpymo_backend_text show_name;
@@ -42,6 +46,7 @@ typedef struct {
 #define ITEM_TEXT_SPEED 3
 #define ITEM_FONT_SIZE 4
 #define ITEM_SKIP_ALREADY_READ_ONLY 5
+#define ITEM_READ_GRAY 6
 
 const static float side_padding = 16;
 
@@ -429,6 +434,11 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 		1, 
 		(int)e->config_skip_already_read_only,
 		true);
+
+#ifdef GARLIC_NO_FFMPEG
+    INIT_ITEM(ITEM_READ_GRAY, "已读变灰", 0, 1,
+        (int)e->gameconfig.garlic_read_gray, true);
+#endif
 	
 	#undef INIT_ITEM
 }
@@ -494,6 +504,11 @@ static error_t cpymo_config_ui_set_value(
 		assert(val == 0 || val == 1);
 		val_str = l->config_skip_modes[val];
 		break;
+#ifdef GARLIC_NO_FFMPEG
+    case ITEM_READ_GRAY:
+        val_str = val ? "开" : "关";
+        break;
+#endif
 	}
 
 #ifdef ENABLE_TEXT_EXTRACT
@@ -544,6 +559,26 @@ JUST_REFRESH:
                 return reflow_err;
             }
         }
+        if (e->say.name && e->say.current_name) {
+            cpymo_backend_text name = NULL;
+            float width = 0;
+            error_t name_err = cpymo_backend_text_create(&name, &width,
+                cpymo_str_pure(e->say.current_name), cpymo_gameconfig_font_size(&e->gameconfig));
+            if (name_err != CPYMO_ERR_SUCC) {
+                e->gameconfig.garlic_font_large = previous;
+                if (e->say.textbox_usable)
+                    cpymo_textbox_reflow(&e->say.textbox, cpymo_gameconfig_font_size(&e->gameconfig));
+                cpymo_config_ui_refresh_items(e);
+                return name_err;
+            }
+            /* Speaker glyphs are owned by history records or its pending
+               name. Keep existing records alive and transfer the replacement
+               through the same ownership API used by a normal #say. */
+            cpymo_backlog_record_write_name(&e->backlog, name,
+                cpymo_str_pure(e->say.current_name));
+            e->say.name = name;
+            e->say.name_width = width;
+        }
         cpymo_config_ui_schedule_save(ui);
 #else
         e->gameconfig.fontsize = (uint16_t)val;
@@ -557,6 +592,14 @@ JUST_REFRESH:
 		e->config_skip_already_read_only = val > 0;
 		cpymo_config_ui_schedule_save(ui);
 		break;
+#ifdef GARLIC_NO_FFMPEG
+    case ITEM_READ_GRAY:
+        e->gameconfig.garlic_read_gray = val != 0;
+        if (e->say.textbox_usable)
+            e->say.textbox.alpha = val && e->say.current_say_is_already_read ? 0.75f : 1.0f;
+        cpymo_config_ui_schedule_save(ui);
+        break;
+#endif
 	default: assert(false);
 	}
 
@@ -570,7 +613,7 @@ static error_t cpymo_config_ui_item_inc(cpymo_engine *e, cpymo_config_ui *ui, in
 	cpymo_config_ui_item *item = ui->items + item_index;
 	int new_val = item->value + 1;
 	if (new_val > item->max_value)
-		new_val = item->min_value;
+		new_val = item_index <= ITEM_VO_VOL ? item->max_value : item->min_value;
 
 	if (new_val != item->value) {
 		error_t err = cpymo_config_ui_set_value(e, ui, item_index, new_val, false);
@@ -585,7 +628,7 @@ static error_t cpymo_config_ui_item_dec(cpymo_engine *e, cpymo_config_ui *ui, in
 	cpymo_config_ui_item *item = ui->items + item_index;
 	int new_val = item->value - 1;
 	if (new_val < item->min_value)
-		new_val = item->max_value;
+		new_val = item_index <= ITEM_VO_VOL ? item->min_value : item->max_value;
 
 	if (new_val != item->value) {
 		error_t err = cpymo_config_ui_set_value(e, ui, item_index, new_val, false);

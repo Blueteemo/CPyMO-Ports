@@ -15,6 +15,14 @@ const static float already_read_text_alpha = 0.6f;
 #endif
 const float static auto_mode_time = 2.0f;
 
+static float cpymo_say_read_alpha(const cpymo_engine *e)
+{
+#ifdef GARLIC_NO_FFMPEG
+    if (!e->gameconfig.garlic_read_gray) return 1.0f;
+#endif
+    return e->say.current_say_is_already_read ? already_read_text_alpha : 1.0f;
+}
+
 #define DISABLE_TEXTBOX(SAY) \
 	if (SAY->textbox_usable) { \
 		cpymo_textbox_free(&(SAY)->textbox, &e->backlog); \
@@ -173,8 +181,7 @@ void cpymo_say_draw(const struct cpymo_engine *e)
 				e->say.name,
 				name_x, namebox_y + cpymo_gameconfig_font_size(&e->gameconfig) / 10.0f * 9.0f,
 				e->gameconfig.textcolor,
-				e->say.current_say_is_already_read ? 
-					already_read_text_alpha : 1, 
+				cpymo_say_read_alpha(e),
 				cpymo_backend_image_draw_type_text_say);
 		}
 
@@ -505,9 +512,7 @@ error_t cpymo_say_start(cpymo_engine *e, cpymo_str name, cpymo_str text)
 	float y = (float)e->gameconfig.imagesize_h - msg_h + msgtb_t;
 	float h = msg_h - msgtb_t - msgtb_b;
 
-	const float text_alpha = 
-		e->say.current_say_is_already_read ? 
-			already_read_text_alpha : 1.0f;
+	const float text_alpha = cpymo_say_read_alpha(e);
 
 	error_t err;
 	ENABLE_TEXTBOX(

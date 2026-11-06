@@ -37,6 +37,7 @@ typedef struct {
 	uint16_t fontsize;
 #ifdef GARLIC_NO_FFMPEG
     bool garlic_font_large; /* UI sidecar; never changes legacy csav layout */
+    bool garlic_read_gray;
 #endif
 	int16_t nameboxorg_x, nameboxorg_y;
 	uint16_t msgtb_t, msgtb_b;
@@ -80,7 +81,7 @@ static inline float cpymo_gameconfig_font_size(const cpymo_gameconfig *c)
 {
     float size = c->fontsize / 240.0f * c->imagesize_h * 0.8f;
 #ifdef GARLIC_NO_FFMPEG
-    if (!c->garlic_font_large) size *= 0.92f;
+    if (!c->garlic_font_large) size *= 0.86f;
 #endif
     return size;
 }

@@ -59,6 +59,12 @@ static void cpymo_game_selector_draw_node(const cpymo_engine *e, const void *nod
 static error_t cpymo_game_selector_ok(cpymo_engine *e, void *selected)
 {
 	cpymo_game_selector_item *item = (cpymo_game_selector_item *)selected;
+#ifdef GARLIC_NO_FFMPEG
+    /* The libretro frame loop owns engine teardown. No UI callback may free
+       the engine currently executing its update stack. */
+    extern error_t garlic_queue_game(const char *gamedir);
+    return garlic_queue_game(item->gamedir);
+#else
 	char *gamedir = item->gamedir;
 	item->gamedir = NULL;
 
@@ -86,6 +92,7 @@ static error_t cpymo_game_selector_ok(cpymo_engine *e, void *selected)
 	}
 	
 	return err;
+#endif
 }
 
 static void cpymo_game_selector_delete(cpymo_engine *e, void *ui_data)
@@ -297,7 +304,7 @@ static error_t cpymo_game_selector_lazy_init_update(cpymo_engine *e, void *ui_, 
 
 		ui->items = items;
 
-		#ifndef EXIT_TO_GAME_SELECTOR
+		#if !defined(EXIT_TO_GAME_SELECTOR) && !defined(GARLIC_NO_FFMPEG)
 		if (ui->items != NULL)
 			if (ui->items->next == NULL && ui->items->prev == NULL)
 				return cpymo_game_selector_ok(e, ui->items);

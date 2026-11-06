@@ -97,3 +97,61 @@ bool garlic_blit_rgb565(uint16_t *dst, size_t pitch, int dw, int dh,
     if (x_lookup != x_stack) free(x_lookup);
     return true;
 }
+
+/* Exact source footprints, normalized to Q8 weights. The handheld's largest
+   accepted canvas is 2048x2048, giving at most six taps at 640x480. Unusual
+   caller geometries retain the bounded nearest implementation. */
+typedef struct { uint16_t first, count, weight[6]; } garlic_area_axis;
+static bool area_axis(garlic_area_axis *a, int x, int src, int dst)
+{
+    uint32_t lo=(uint32_t)x*src, hi=(uint32_t)(x+1)*src;
+    unsigned first=lo/dst, end=(hi+dst-1)/dst;
+    if (end>(unsigned)src) end=src;
+    if (end<=first || end-first>6) return false;
+    a->first=first; a->count=end-first;
+    unsigned total=0;
+    for (unsigned i=0;i<a->count;i++) {
+        uint32_t l=(first+i)*dst, r=(first+i+1)*dst;
+        if (l<lo) l=lo;
+        if (r>hi) r=hi;
+        unsigned w=i+1==a->count ? 256-total : (r-l)*256u/src;
+        a->weight[i]=w; total+=w;
+    }
+    return true;
+}
+
+bool garlic_blit_rgb565_quality(uint16_t *dst,size_t pitch,int dw,int dh,
+    const uint8_t *src,size_t spitch,int sw,int sh)
+{
+    garlic_viewport v;
+    if (!dst || !src || dw<=0 || dh<=0 || dw>1024 || dh>1024 ||
+        sw<=0 || sh<=0 || sw>2048 || sh>2048 || pitch<(size_t)dw*2 ||
+        (pitch&1u) || spitch<(size_t)sw*4 ||
+        (size_t)dh>SIZE_MAX/pitch || (size_t)sh>SIZE_MAX/spitch ||
+        !garlic_compute_viewport(sw,sh,dw,dh,&v) || (sw<=v.w && sh<=v.h))
+        return garlic_blit_rgb565(dst,pitch,dw,dh,src,spitch,sw,sh);
+    garlic_area_axis columns[1024], row;
+    for (int x=0;x<v.w;x++)
+        if (!area_axis(columns+x,x,sw,v.w))
+            return garlic_blit_rgb565(dst,pitch,dw,dh,src,spitch,sw,sh);
+    for (int y=0;y<dh;y++) memset((uint8_t *)dst+(size_t)y*pitch,0,(size_t)dw*2);
+    for (int y=0;y<v.h;y++) {
+        if (!area_axis(&row,y,sh,v.h))
+            return garlic_blit_rgb565(dst,pitch,dw,dh,src,spitch,sw,sh);
+        uint16_t *out=(uint16_t *)((uint8_t *)dst+(size_t)(y+v.y)*pitch);
+        for (int x=0;x<v.w;x++) {
+            const garlic_area_axis *col=columns+x;
+            uint32_t r=0,g=0,b=0;
+            for (unsigned j=0;j<row.count;j++) {
+                const uint8_t *p=src+(size_t)(row.first+j)*spitch+(size_t)col->first*4;
+                for (unsigned i=0;i<col->count;i++,p+=4) {
+                    uint32_t w=(uint32_t)row.weight[j]*col->weight[i];
+                    b+=p[0]*w; g+=p[1]*w; r+=p[2]*w;
+                }
+            }
+            r=(r+32768)>>16; g=(g+32768)>>16; b=(b+32768)>>16;
+            out[x+v.x]=(uint16_t)(((r&248)<<8)|((g&252)<<3)|(b>>3));
+        }
+    }
+    return true;
+}

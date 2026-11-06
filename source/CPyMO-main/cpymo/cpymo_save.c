@@ -8,6 +8,76 @@
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
+#ifdef GARLIC_MP3_AUDIO
+#include <dirent.h>
+#include <sys/stat.h>
+#include "cpymo_utils.h"
+
+/* Old Garlic cores serialized one-shot names into the legacy loop-only field.
+   Migrate only when a complete, bounded scan of this game's scripts proves
+   that the named SE is used as a one-shot and never as a loop. Ambiguous or
+   unreadable games retain the old slot semantics; original slots are not
+   rewritten. This also preserves ambient loops started in another script. */
+static void garlic_discard_legacy_one_shot(cpymo_engine *e)
+{
+    const char *saved = cpymo_audio_get_se_name(e);
+    if (!saved || !saved[0]) return;
+    size_t root_len = strlen(e->assetloader.gamedir);
+    char *dir = malloc(root_len + 9);
+    if (!dir) return;
+    sprintf(dir, "%s/script", e->assetloader.gamedir);
+    DIR *d = opendir(dir);
+    if (!d) { free(dir); return; }
+    bool seen = false, complete = true, loop = false;
+    size_t bytes = 0, files = 0;
+    struct dirent *entry;
+    while (!loop && (entry = readdir(d))) {
+        size_t n = strlen(entry->d_name);
+        if (n < 4 || !cpymo_str_equals_str_ignore_case(
+            (cpymo_str){entry->d_name+n-4,4}, ".txt")) continue;
+        char *path = malloc(root_len+n+10);
+        if (!path) { complete=false; break; }
+        sprintf(path, "%s/%s", dir, entry->d_name);
+        struct stat st;
+        if (stat(path,&st) || !S_ISREG(st.st_mode) || st.st_size<0 ||
+            (uint64_t)st.st_size>8*1024*1024 || ++files>512 ||
+            (bytes+=(size_t)st.st_size)>32*1024*1024) {
+            free(path); complete=false; break;
+        }
+        char *content=NULL; size_t len=0;
+        error_t err=cpymo_utils_loadfile(path,&content,&len);
+        free(path);
+        if (err) { complete=false; break; }
+        cpymo_parser p; cpymo_parser_init(&p,content,len);
+        do {
+            cpymo_str command=cpymo_parser_curline_pop_command(&p);
+            for (unsigned depth=0; depth<8 && cpymo_str_equals_str(command,"if");depth++) {
+                cpymo_parser_curline_pop_commacell(&p);
+                while (!p.is_line_end && p.cur_pos<p.stream.len &&
+                    (p.stream.begin[p.cur_pos]==' ' || p.stream.begin[p.cur_pos]=='\t')) p.cur_pos++;
+                command=cpymo_parser_curline_readuntil_or(&p,' ','\t');
+                cpymo_str_trim(&command);
+            }
+            if (cpymo_str_equals_str(command,"if")) { complete=false; break; }
+            if (cpymo_str_equals_str(command,"se")) {
+                cpymo_str name=cpymo_parser_curline_pop_commacell(&p);
+                cpymo_str mode=cpymo_parser_curline_pop_commacell(&p);
+                if (cpymo_str_equals_str_ignore_case(name,saved)) {
+                    seen=true;
+                    if (cpymo_str_equals_str(mode,"1")) { loop=true; break; }
+                }
+            }
+        } while (cpymo_parser_next_line(&p));
+        free(content);
+        if (!complete) break;
+    }
+    closedir(d); free(dir);
+    if (complete && seen && !loop) {
+        printf("SE legacy_one_shot_discard name=%s\n",saved);
+        cpymo_audio_se_stop(e);
+    }
+}
+#endif
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -524,6 +594,10 @@ error_t cpymo_save_load_savedata(cpymo_engine *e, FILE *save)
 	if (e->interpreter == NULL) return CPYMO_ERR_BAD_FILE_FORMAT;
 
 	cpymo_interpreter_goto_line(e->interpreter, (uint64_t)e->interpreter->checkpoint.cur_line);
+
+#ifdef GARLIC_MP3_AUDIO
+    garlic_discard_legacy_one_shot(e);
+#endif
 
 	cpymo_engine_request_redraw(e);
 
