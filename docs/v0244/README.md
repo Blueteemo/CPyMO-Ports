@@ -26,7 +26,7 @@
 
 UI 共七项：BGM、SE、Voice、文字速度、字体大小、快进模式、已读变灰。三个音量在 0/100% 停止，离散开关仍可循环。原 12 字节 `config.csav` 不变；`rg35xx-ui.cfg` 升为 `CPYMO_UI_2`，读入兼容旧 `CPYMO_UI_1`。不加入语言切换或未经验证的立绘特效开关。
 
-共享字体仅补齐覆盖范围。基于 [Adobe Source Han Sans 2.005R](https://github.com/adobe-fonts/source-han-sans/releases/tag/2.005R) 的同一 SC Medium 字体，保留原字体的垂直度量及 GPOS/kerning 策略，加入游戏配置、脚本和 UI 所需的 30 个码位。旧 7,170 个码位在六个像素尺寸、四个子像素位置下的 172,080 个实际 stb 字形位图逐字节一致，9,025 对 ASCII kerning 亦一致。新字体共 7,200 个码位，覆盖两部游戏的配置与脚本；导出名称改为 CPyMO CJK Medium，并附 OFL 原文。`tools/build_rg35xx_font.py` 和 `tests/v0244/font_parity.c` 可复现。
+共享字体仅补齐覆盖范围。基于 [Adobe Source Han Sans 2.005R](https://github.com/adobe-fonts/source-han-sans/releases/tag/2.005R) 的同一 SC Medium 字体，保留原字体的垂直度量及 GPOS/kerning 策略，加入游戏配置、脚本和 UI 所需的 30 个码位。旧 7,170 个码位在六个像素尺寸、四个子像素位置下的 172,080 个实际 stb 字形位图逐字节一致，9,025 对 ASCII kerning 亦一致。新字体实际 cmap 共 7,500 个码位：除 30 个必需新增码位外，保留字形的布局闭包还带入了 300 个别名码位。两部游戏的配置与脚本均已覆盖；导出名称改为 CPyMO CJK Medium，并附 OFL 原文。`tools/build_rg35xx_font.py` 和 `tests/v0244/font_parity.c` 可复现。
 
 ## 视频实验路径
 
