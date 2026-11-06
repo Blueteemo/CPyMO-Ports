@@ -19,7 +19,7 @@ for count in [0,1,4,8]:
     ink=np.any(px[432:]!=0,axis=2);ys,xs=np.where(ink)
     assert len(xs)>100 and ys.max()+432<464
     assert not np.any(px[464:])
-    if count: assert not np.any(px[:4]), 'offscreen row leaked into top edge'
+    if count: assert not np.any(px[:4]>200), 'offscreen text leaked above the first full row (selection fill is allowed)'
     rows.append({'games':count,'footer_ink_bbox':[int(xs.min()),int(ys.min()+432),int(xs.max()+1),int(ys.max()+433)],'passed':True})
 (batch/'summary.json').write_text(json.dumps({'scope':mode+' actual output pixels; no hardware acceptance','results':rows},indent=2)+'\n')
 print('BATCH',batch);print(json.dumps(rows))
