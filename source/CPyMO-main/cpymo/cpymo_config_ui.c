@@ -524,8 +524,11 @@ static error_t cpymo_config_ui_set_value(
 	err = cpymo_backend_text_create(
 		&item->show_value, 
 		&item->show_value_width, 
-		cpymo_str_pure(val_str), 
-		ui->font_size);
+        cpymo_str_pure(val_str),
+#ifdef GARLIC_NO_FFMPEG
+        item_index == ITEM_FONT_SIZE ? ui->font_size*(val ? 1.0f : 0.86f) :
+#endif
+        ui->font_size);
 
 	if (err != CPYMO_ERR_SUCC)
 		item->show_value = NULL;
@@ -641,6 +644,10 @@ static error_t cpymo_config_ui_item_dec(cpymo_engine *e, cpymo_config_ui *ui, in
 static error_t cpymo_config_ui_update(cpymo_engine *e, float dt, void *sel)
 {
 	cpymo_config_ui *ui = (cpymo_config_ui *)cpymo_list_ui_data(e);
+    if (ui->save_pending) {
+        ui->save_delay -= dt;
+        if (ui->save_delay <= 0) cpymo_config_ui_flush_save(e, ui);
+    }
 	cpymo_key_pluse_update(&ui->left, dt, e->input.left);
 	cpymo_key_pluse_update(&ui->right, dt, e->input.right);
 	cpymo_key_pluse_update(&ui->ok, dt, e->input.ok);
@@ -735,11 +742,6 @@ static error_t cpymo_config_ui_ok(cpymo_engine *e, void *sel)
 #ifdef ENABLE_TEXT_EXTRACT
 static error_t cpymo_config_ui_visual_im_help_selection_changed_callback(cpymo_engine *e, void *sel)
 {
-	if (ui->save_pending) {
-		ui->save_delay -= dt;
-		if (ui->save_delay <= 0) cpymo_config_ui_flush_save(e, ui);
-	}
-
 	const int i = (int)cpymo_list_ui_encode_uint_node_dec(sel);
 	cpymo_config_ui_extract_setting_title(e, i);
 

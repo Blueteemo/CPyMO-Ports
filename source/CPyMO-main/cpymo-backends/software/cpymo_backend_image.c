@@ -5,6 +5,7 @@
 #include "cpymo_backend_software.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include "../../cpymo/garlic_stages.h"
 
 extern cpymo_backend_software_context 
     *cpymo_backend_software_cur_context;
@@ -15,6 +16,7 @@ void cpymo_backend_image_scale_on_load(
     if (!cpymo_backend_software_cur_context->scale_on_load_image)
         return;
 
+    uint64_t stage_begin=garlic_stage_begin();
     int new_width = 
         *width 
         * cpymo_backend_software_cur_context->scale_on_load_image_w_ratio;
@@ -23,17 +25,28 @@ void cpymo_backend_image_scale_on_load(
         *height
         * cpymo_backend_software_cur_context->scale_on_load_image_h_ratio;
         
+    if (new_width < 1) new_width=1;
+    if (new_height < 1) new_height=1;
     uint8_t *new_pixel = (uint8_t *)malloc(new_height * new_width * channels);
     if (new_pixel == NULL) return;
 
-    stbir_resize_uint8(
-        (uint8_t *)*pixels, *width, *height, *width * channels, 
-        new_pixel, new_width, new_height, new_width * channels, channels);
-
+#ifdef GARLIC_NO_FFMPEG
+    /* Filter once at load; RGBA is straight alpha, so let stb premultiply
+       during filtering and unpremultiply afterwards to prevent dark fringes. */
+    int ok = stbir_resize_uint8_generic(*pixels, *width, *height, *width * channels,
+        new_pixel, new_width, new_height, new_width * channels, channels,
+        channels == 4 ? 3 : STBIR_ALPHA_CHANNEL_NONE, 0, STBIR_EDGE_CLAMP,
+        STBIR_FILTER_BOX, STBIR_COLORSPACE_LINEAR, NULL);
+    if (!ok) { free(new_pixel); return; }
+#else
+    stbir_resize_uint8(*pixels,*width,*height,*width*channels,
+        new_pixel,new_width,new_height,new_width*channels,channels);
+#endif
     free(*pixels);
     *pixels = (void *)new_pixel;
     *width = new_width;
     *height = new_height;
+    garlic_stage_end(GARLIC_STAGE_SCALE,stage_begin);
 }
 
 error_t cpymo_backend_image_load(
@@ -60,9 +73,11 @@ error_t cpymo_backend_image_load(
         abort();
     }
 
+    img->source_w=width; img->source_h=height;
     cpymo_backend_image_scale_on_load(
         &pixels_moveintoimage, &width, &height, img->pixel_stride);
 
+    img->references = 1;
     img->w = (size_t)width;
     img->h = (size_t)height;
     img->pixels = pixels_moveintoimage;
@@ -99,6 +114,7 @@ void cpymo_backend_image_free(cpymo_backend_image image)
 {
     cpymo_backend_software_image *p = 
         (cpymo_backend_software_image *)image;
+    if (p->references > 1) { p->references--; return; }
     free(p->pixels);
     free(p);
 }
@@ -253,6 +269,13 @@ void cpymo_backend_image_draw(
             cpymo_backend_software_cur_context->scale_on_load_image_h_ratio;
     }
 
+#ifdef GARLIC_NO_FFMPEG
+    cpymo_backend_software_image *original = src;
+    if (original->source_w && original->source_h) {
+        scalex=(float)original->w/original->source_w;
+        scaley=(float)original->h/original->source_h;
+    }
+#endif
     float fsrcx = scalex * (float)srcx;
     float fsrcy = scaley * (float)srcy;
     float fsrcw = scalex * (float)srcw;
@@ -298,6 +321,10 @@ void cpymo_backend_image_draw(
     const size_t dbo = render_target->b_offset;
     const size_t dstride = render_target->pixel_stride;
 
+#ifdef GARLIC_NO_FFMPEG
+    const unsigned global_q=(unsigned)(cpymo_utils_clampf(alpha,0,1)*65536.0f);
+    if (!global_q) { lookup_free(&lk); return; }
+#endif
     for (int draw_y = cy1; draw_y < cy2; ++draw_y) {
         const uint8_t *tex_row =
             src_pixels + lk.sv[(size_t)(draw_y - cy1)] * line_stride;
@@ -312,7 +339,19 @@ void cpymo_backend_image_draw(
 
         for (int draw_x = cx1; draw_x < cx2; ++draw_x, ++su, dst_row += dstride) {
             const uint8_t *tex = tex_row + *su * pixel_stride;
-
+#ifdef GARLIC_NO_FFMPEG
+            unsigned aq=src_alpha ? (global_q*tex[ao])/255u : global_q;
+            if (!aq) continue;
+            if (aq==65536u) {
+                dst_row[dro]=tex[ro];dst_row[dgo]=tex[go];dst_row[dbo]=tex[bo];
+            } else {
+                unsigned inv=65536u-aq;
+                dst_row[dro]=(tex[ro]*aq+dst_row[dro]*inv)>>16;
+                dst_row[dgo]=(tex[go]*aq+dst_row[dgo]*inv)>>16;
+                dst_row[dbo]=(tex[bo]*aq+dst_row[dbo]*inv)>>16;
+            }
+            continue;
+#endif
             if (opaque) {
                 /* a == 1.0f: with no source alpha, v0.21's a = 1.0f * 1.0f;
                  * with source alpha, exactly the texel's own alpha. Both
@@ -429,11 +468,19 @@ void cpymo_backend_image_fill_rects(
 
         for (int draw_y = y1; draw_y < y2; ++draw_y) {
             for (int draw_x = x1; draw_x < x2; ++draw_x) {
+#ifdef GARLIC_NO_FFMPEG
+                uint8_t *d=cpymo_backend_software_image_ptr(render_target,draw_x,draw_y);
+                unsigned q=(unsigned)(alpha*65536.0f),inv=65536u-q;
+                d[render_target->r_offset]=(color.r*q+d[render_target->r_offset]*inv)>>16;
+                d[render_target->g_offset]=(color.g*q+d[render_target->g_offset]*inv)>>16;
+                d[render_target->b_offset]=(color.b*q+d[render_target->b_offset]*inv)>>16;
+#else
                 cpymo_backend_software_image_write_blend(
                     render_target,
                     (size_t)draw_x,
                     (size_t)draw_y,
                     r, g, b, alpha);
+#endif
             }
         }
     }

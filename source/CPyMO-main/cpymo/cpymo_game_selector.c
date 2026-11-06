@@ -287,6 +287,9 @@ static error_t cpymo_game_selector_lazy_init_update(cpymo_engine *e, void *ui_, 
 			cpymo_list_ui_set_selection_changed_callback(e, &cpymo_game_selector_visual_im_help_selection_changed_callback);
 		#endif
 
+#ifdef GARLIC_NO_FFMPEG
+        cpymo_list_ui_set_viewport_height(e,416.0f);
+#endif
 		cpymo_list_ui_set_allow_exit(e, false);
 		cpymo_list_ui_set_selection_relative_to_cur(e, relative);
 
@@ -348,7 +351,11 @@ static error_t cpymo_game_selector_lazy_init_update(cpymo_engine *e, void *ui_, 
 
 #if (!defined __PSP__ && !defined __UWP__ && !defined __IOS__)
 		err = cpymo_backend_text_create(&ui->msg2, &ui->msg2_w,
+#ifdef GARLIC_NO_FFMPEG
+            cpymo_str_pure("请将游戏放入 CPyMO/games 文件夹，\n每部游戏使用一个独立文件夹。"),
+#else
 			cpymo_str_pure(l->game_selector_empty_secondary),
+#endif
 			font_size / 1.3f);
 
 		if (err != CPYMO_ERR_SUCC) {

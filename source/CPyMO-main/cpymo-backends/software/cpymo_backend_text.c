@@ -113,18 +113,16 @@ error_t cpymo_backend_text_create(
     cpymo_str utf8_string, 
     float single_character_size_in_logical_screen)
 {
-    float game_w = cpymo_backend_software_cur_context->logical_screen_w;
     float game_h = cpymo_backend_software_cur_context->logical_screen_h;
 
-    float win_w = (float)cpymo_backend_software_cur_context->render_target->w;
     float win_h = (float)cpymo_backend_software_cur_context->render_target->h;
 
     stbtt_fontinfo *font = cpymo_backend_software_cur_context->font;
 
     float height_norm = single_character_size_in_logical_screen / game_h;
-    float height_screen = height_norm * win_h;
-    if (cpymo_backend_software_cur_context->text_layer)
-        height_screen *= cpymo_backend_software_cur_context->text_scale;
+    float height_screen = cpymo_backend_software_cur_context->text_layer ?
+        single_character_size_in_logical_screen * cpymo_backend_software_cur_context->text_scale :
+        height_norm * win_h;
 
     float scale = stbtt_ScaleForPixelHeight(font, height_screen);
     int ascent;
@@ -330,7 +328,9 @@ float cpymo_backend_text_width(
     stbtt_fontinfo *font = cpymo_backend_software_cur_context->font;
 
     float height_norm = single_character_size_in_logical_screen / game_h;
-    float height_screen = height_norm * win_h;
+    float height_screen = cpymo_backend_software_cur_context->text_layer ?
+        single_character_size_in_logical_screen * cpymo_backend_software_cur_context->text_scale :
+        height_norm * win_h;
     float scale = stbtt_ScaleForPixelHeight(font, height_screen);
     int ascent;
     stbtt_GetFontVMetrics(font, &ascent, NULL, NULL);
@@ -338,5 +338,26 @@ float cpymo_backend_text_width(
     int w, h;
     cpymo_backend_text_render(NULL, &w, &h, s, scale, baseline, 0, 0);
 
+    if (cpymo_backend_software_cur_context->text_layer)
+        return TEXT_CHARACTER_W_SCALE * (float)w / cpymo_backend_software_cur_context->text_scale;
     return TEXT_CHARACTER_W_SCALE * (float)w / win_w * game_w;
 }
+
+#ifdef GARLIC_NO_FFMPEG
+/* Logical space remaining for baselines, with actual glyph descenders and a
+ * two-output-pixel shadow/safe margin reserved below the final baseline. */
+float garlic_textbox_safe_height(cpymo_str text,float size,float y,float height)
+{
+    cpymo_backend_software_context *ctx=cpymo_backend_software_cur_context;
+    float s=ctx->text_layer ? ctx->text_scale : (float)ctx->render_target->h/ctx->logical_screen_h;
+    float scale=stbtt_ScaleForPixelHeight(ctx->font,size*s);
+    int bottom=0;
+    while(text.len){
+        uint32_t c=cpymo_str_utf8_try_head_to_utf32(&text);
+        int x0,y0,x1,y1;stbtt_GetCodepointBitmapBox(ctx->font,c,scale,scale,&x0,&y0,&x1,&y1);
+        if(y1>bottom)bottom=y1;
+    }
+    float available=fminf(height,ctx->logical_screen_h-y);
+    return fmaxf(0,available-(bottom+2)/s);
+}
+#endif

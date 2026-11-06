@@ -4,7 +4,7 @@
  * libretro output clock drives video, including when frontend audio is muted.
  */
 #include "cpymo_prelude.h"
-#ifdef GARLIC_MP3_AUDIO
+#if defined(GARLIC_MP3_AUDIO) && defined(GARLIC_EXPERIMENTAL_MOVIE)
 #include "garlic_movie.h"
 #include "cpymo_engine.h"
 #include "cpymo_ui.h"

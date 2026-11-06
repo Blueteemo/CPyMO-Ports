@@ -177,7 +177,7 @@ error_t cpymo_save_global_save(cpymo_engine *e)
 static void garlic_font_load(cpymo_engine *e)
 {
     e->gameconfig.garlic_font_large = false;
-    e->gameconfig.garlic_read_gray = false;
+    e->gameconfig.garlic_read_gray = true;
     FILE *f = cpymo_backend_read_save(e->assetloader.gamedir, "rg35xx-ui.cfg");
     if (!f) return;
     char buf[128] = {0}; size_t n = fread(buf, 1, sizeof(buf)-1, f); fclose(f);

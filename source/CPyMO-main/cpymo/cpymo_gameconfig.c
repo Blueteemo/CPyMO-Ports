@@ -1,4 +1,5 @@
 ﻿#include "cpymo_prelude.h"
+#include "garlic_stages.h"
 #include "cpymo_gameconfig.h"
 #include "cpymo_utils.h"
 #include "cpymo_parser.h"
@@ -238,6 +239,7 @@ error_t cpymo_gameconfig_parse(cpymo_gameconfig *out_config, const char *stream,
 error_t cpymo_gameconfig_parse_from_file(
 	cpymo_gameconfig *out_config, const char * path)
 {
+    uint64_t stage_begin=garlic_stage_begin();
 	char *buf = NULL;
 	size_t len;
 	error_t err = cpymo_utils_loadfile(path, &buf, &len);
@@ -248,7 +250,7 @@ error_t cpymo_gameconfig_parse_from_file(
 	err = cpymo_gameconfig_parse(out_config, buf, len);
 
 	free(buf);
-
+    garlic_stage_end(GARLIC_STAGE_CONFIG,stage_begin);
 	return err;
 }
 

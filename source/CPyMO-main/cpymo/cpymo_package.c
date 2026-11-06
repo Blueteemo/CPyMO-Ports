@@ -1,4 +1,5 @@
 ﻿#include "cpymo_prelude.h"
+#include "garlic_stages.h"
 #include "cpymo_package.h"
 #include "cpymo_utils.h"
 
@@ -10,6 +11,7 @@
 
 error_t cpymo_package_open(cpymo_package *out_package, const char * path)
 {
+    uint64_t stage_begin=garlic_stage_begin();
 #ifdef DEBUG
 	out_package->has_stream_reader = false;
 #endif
@@ -55,6 +57,7 @@ error_t cpymo_package_open(cpymo_package *out_package, const char * path)
 		file->file_offset = end_le32toh(file->file_offset);
 	}
 
+    garlic_stage_end(GARLIC_STAGE_PACKAGE,stage_begin);
 	return CPYMO_ERR_SUCC;
 }
 
@@ -156,14 +159,19 @@ error_t cpymo_package_read_image_from_index(void ** pixels, int * w, int * h, in
 	stbi_uc *file_data = (stbi_uc *)malloc(index->file_length);
 	if (file_data == NULL) return CPYMO_ERR_OUT_OF_MEM;
 
+    uint64_t io_begin=garlic_stage_begin();
 	error_t err = cpymo_package_read_file_from_index((char *)file_data, pkg, index);
+    garlic_stage_end(GARLIC_STAGE_IMAGE_IO,io_begin);
 	if (err != CPYMO_ERR_SUCC) {
 		free(file_data);
 		return err;
 	}
 
 	// Why this method is faster than stream loading in package ???
+    uint64_t decode_begin=garlic_stage_begin();
+    unsigned kind=index->file_length>2 && file_data[0]==0xff && file_data[1]==0xd8 ? GARLIC_STAGE_JPEG : (index->file_length>4 && (unsigned char)file_data[0]==0x89 && file_data[1]=='P' && file_data[2]=='N' && file_data[3]=='G' ? GARLIC_STAGE_PNG : GARLIC_STAGE_IMAGE_OTHER);
 	*pixels = stbi_load_from_memory(file_data, index->file_length, w, h, NULL, channels);
+    garlic_stage_end(kind,decode_begin);
 	free(file_data);
 	
 	if (*pixels == NULL) {

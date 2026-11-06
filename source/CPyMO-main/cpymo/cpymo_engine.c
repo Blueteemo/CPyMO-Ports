@@ -1,4 +1,5 @@
 ﻿#include "cpymo_prelude.h"
+#include "garlic_image_cache.h"
 
 #define CPYMO_DEFAULT_BGM_HEADROOM 0.8f
 #define CPYMO_DEFAULT_SE_HEADROOM 0.7f
@@ -388,6 +389,9 @@ void cpymo_engine_draw(const cpymo_engine *engine)
 
 void cpymo_engine_trim_memory(cpymo_engine *e)
 {
+#ifdef GARLIC_NO_FFMPEG
+    garlic_image_cache_clear(); /* Release cached references before engine trim. */
+#endif
 	extern void cpymo_bg_transfer_operate(cpymo_engine *e);
 	cpymo_bg_transfer_operate(e);
 

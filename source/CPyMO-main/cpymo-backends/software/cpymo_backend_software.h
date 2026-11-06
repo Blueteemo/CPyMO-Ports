@@ -11,6 +11,8 @@ typedef struct {
     size_t r_offset, g_offset, b_offset, a_offset;
     bool has_alpha_channel;
     uint8_t *pixels;
+    size_t source_w, source_h;
+    unsigned references; /* heap images; cache and engine each own a reference */
 } cpymo_backend_software_image;
 
 #define CPYMO_BACKEND_SOFTWARE_IMAGE_PIXEL(PIMAGE, X, Y, CHANNEL) \
@@ -41,7 +43,7 @@ typedef struct {
      * rasterised at the on-screen scale and composited after the hardware-like
      * blit, so glyphs are never resampled (540x360 games would otherwise be
      * upscaled 1.185x with nearest neighbour and look chunky). Images keep
-     * using render_target at the canvas size. */
+     * using render_target, bounded to the aspect-fit output for large canvases. */
     bool text_layer;
     uint32_t *text_layer_px;      /* 0xAABBGGRR, straight alpha */
     int text_layer_w, text_layer_h;

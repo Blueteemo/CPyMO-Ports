@@ -8,6 +8,9 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <assert.h>
+#include <limits.h>
+#include "garlic_image_cache.h"
+#include "garlic_stages.h"
 #include "../stb/stb_image.h"
 
 error_t cpymo_assetloader_init(cpymo_assetloader * out, const cpymo_gameconfig * config, const char * gamedir)
@@ -282,8 +285,24 @@ static error_t cpymo_assetloader_load_filesystem_image_pixels(
 	error_t err = cpymo_assetloader_get_fs_path(&path, asset_name, asset_type, asset_ext_name, l);
 	CPYMO_THROW(err);
 
+#ifdef GARLIC_NO_FFMPEG
+    /* One encoded read, then decode from memory. This also separates
+       TF/file access from decompression in diagnostics. */
+    char *encoded=NULL;size_t encoded_len=0;
+    uint64_t io_begin=garlic_stage_begin();
+    err=cpymo_utils_loadfile(path,&encoded,&encoded_len);
+    garlic_stage_end(GARLIC_STAGE_IMAGE_IO,io_begin);
+    free(path);
+    if(err!=CPYMO_ERR_SUCC)return err;
+    if(encoded_len>INT_MAX){free(encoded);return CPYMO_ERR_BAD_FILE_FORMAT;}
+    unsigned kind=encoded_len>2 && (unsigned char)encoded[0]==0xff && (unsigned char)encoded[1]==0xd8 ? GARLIC_STAGE_JPEG : (encoded_len>4 && (unsigned char)encoded[0]==0x89 && encoded[1]=='P' && encoded[2]=='N' && encoded[3]=='G' ? GARLIC_STAGE_PNG : GARLIC_STAGE_IMAGE_OTHER);
+    uint64_t decode_begin=garlic_stage_begin();
+    *pixels=stbi_load_from_memory((const unsigned char*)encoded,(int)encoded_len,w,h,NULL,c);
+    garlic_stage_end(kind,decode_begin);free(encoded);
+#else
 	*pixels = stbi_load(path, w, h, NULL, c);
 	free(path);
+#endif
 
 	if (*pixels == NULL) return CPYMO_ERR_CAN_NOT_OPEN_FILE;
 	
@@ -303,9 +322,10 @@ static error_t cpymo_assetloader_load_image_pixels(
 	const cpymo_package *pkg,
 	const cpymo_assetloader *l)
 {
-	if (using_pkg) 
-		return cpymo_package_read_image(pixels, w, h, c, pkg, asset_name);
-	else return cpymo_assetloader_load_filesystem_image_pixels(
+    uint64_t begin=garlic_stage_begin();
+    error_t result;
+    if (using_pkg) result=cpymo_package_read_image(pixels,w,h,c,pkg,asset_name);
+    else result=cpymo_assetloader_load_filesystem_image_pixels(
 		pixels,
 		w,
 		h,
@@ -313,7 +333,9 @@ static error_t cpymo_assetloader_load_image_pixels(
 		asset_type,
 		asset_name,
 		asset_ext_name,
-		l);
+        l);
+    garlic_stage_end(GARLIC_STAGE_DECODE,begin);
+    return result;
 }
 
 
@@ -327,6 +349,9 @@ error_t cpymo_assetloader_load_bg_pixels(void ** px, int * w, int * h, cpymo_str
 #ifndef CPYMO_TOOL
 error_t cpymo_assetloader_load_bg_image(cpymo_backend_image * img, int * w, int * h, cpymo_str name, const cpymo_assetloader * loader)
 {
+#ifdef GARLIC_NO_FFMPEG
+    if (garlic_image_cache_get(img,w,h,loader->gamedir,"bg",name,false)) return CPYMO_ERR_SUCC;
+#endif
 	void *pixels = NULL;
 	error_t err = cpymo_assetloader_load_bg_pixels(&pixels, w, h, name, loader);
 	CPYMO_THROW(err);
@@ -343,6 +368,10 @@ error_t cpymo_assetloader_load_bg_image(cpymo_backend_image * img, int * w, int 
 		return err;
 	}
 
+
+#ifdef GARLIC_NO_FFMPEG
+    garlic_image_cache_put(*img,*w,*h,loader->gamedir,"bg",name,false);
+#endif
 	return CPYMO_ERR_SUCC;
 }
 
@@ -358,6 +387,9 @@ static error_t cpymo_assetloader_load_image_with_mask(
 	const cpymo_assetloader *loader,
 	bool load_mask)
 {
+#ifdef GARLIC_NO_FFMPEG
+    if (garlic_image_cache_get(img,w,h,loader->gamedir,asset_type,name,load_mask)) return CPYMO_ERR_SUCC;
+#endif
 	void *pixels = NULL;
 	error_t err = cpymo_assetloader_load_image_pixels(
 		&pixels, w, h, 4, 
@@ -394,6 +426,9 @@ static error_t cpymo_assetloader_load_image_with_mask(
 		if (err != CPYMO_ERR_SUCC) free(pixels);
 	}
 
+#ifdef GARLIC_NO_FFMPEG
+    if (err == CPYMO_ERR_SUCC) garlic_image_cache_put(*img,*w,*h,loader->gamedir,asset_type,name,load_mask);
+#endif
 	return err;
 }
 #endif

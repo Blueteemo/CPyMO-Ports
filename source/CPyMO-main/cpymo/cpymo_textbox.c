@@ -3,6 +3,7 @@
 #include "cpymo_engine.h"
 #include <assert.h>
 #include <stdlib.h>
+#include <math.h>
 
 #ifdef ENABLE_TEXT_EXTRACT_ANDROID_ACCESSIBILITY
 #include "../cpymo-backends/android/app/src/main/cpp/include/cpymo_android.h"
@@ -22,7 +23,11 @@ error_t cpymo_textbox_init(
     cpymo_str text,
     cpymo_backlog *backlog)
 {
-    o->max_lines = (size_t)(height / character_size);
+    float safe_height=height;
+#ifdef GARLIC_NO_FFMPEG
+    safe_height=garlic_textbox_safe_height(text,character_size,y,height);
+#endif
+    o->max_lines = (size_t)(safe_height / character_size);
     if (o->max_lines < 1) o->max_lines = 1;
 
     o->chars_pool_max_size = text.len;
@@ -83,8 +88,12 @@ error_t cpymo_textbox_init(
     o->lines[0].begin_pool_index = 0;
     o->lines[0].pool_slice_size = 0;
     
+    float first_baseline=o->char_size;
+#ifdef GARLIC_NO_FFMPEG
+    first_baseline=fminf(first_baseline,safe_height);
+#endif
     for (size_t i = 0; i < o->max_lines; ++i) {
-        o->lines[i].y = o->y + o->char_size * (i + 1);
+        o->lines[i].y = o->y + first_baseline + o->char_size*i;
     }
 
     o->timer = 0;

@@ -21,6 +21,8 @@
 #include "../../cpymo/cpymo_config_ui.h"
 #include "../../cpymo/cpymo_save.h"
 #include "../../cpymo/garlic_movie.h"
+#include "../../cpymo/garlic_image_cache.h"
+#include "../../cpymo/garlic_stages.h"
 #include "../../endianness.h/endianness.h"
 #include "../software/cpymo_backend_software.h"
 #include "../include/cpymo_backend_audio.h"
@@ -539,7 +541,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
     info->need_fullpath = true;
     info->valid_extensions = "txt|/";
-    info->library_version = "0.24.4";
+    info->library_version = "0.24.5";
     info->library_name = "CPyMO";
     info->block_extract = false;
 }
@@ -578,8 +580,16 @@ void retro_init(void)
 }
 
 
+static char garlic_loaded_font_path[PATH_MAX];
+static off_t garlic_loaded_font_size;
+static time_t garlic_loaded_font_mtime;
 static error_t cpymo_backend_font_try_load_font(const char *path)
 {
+    struct stat st;
+    bool stat_ok=stat(path,&st)==0;
+    if(font.data && stat_ok && !strcmp(path,garlic_loaded_font_path) &&
+        st.st_size==garlic_loaded_font_size && st.st_mtime==garlic_loaded_font_mtime)
+        return CPYMO_ERR_SUCC;
     unsigned char *data = NULL;
     size_t len = 0;
     /* Replacing a font is normal here: the selector draws its menu with one
@@ -597,6 +607,9 @@ static error_t cpymo_backend_font_try_load_font(const char *path)
         font.data = NULL;
         return CPYMO_ERR_BAD_FILE_FORMAT;
     }
+    snprintf(garlic_loaded_font_path,sizeof(garlic_loaded_font_path),"%s",path);
+    garlic_loaded_font_size=stat_ok ? st.st_size : -1;
+    garlic_loaded_font_mtime=stat_ok ? st.st_mtime : 0;
     return CPYMO_ERR_SUCC;
 }
 
@@ -727,6 +740,11 @@ static void garlic_read_render_scale(void)
 static bool garlic_apply_canvas_scaled(size_t w, size_t h, unsigned scale)
 {
     size_t rw = w * scale, rh = h * scale;
+    if (scale == 1 && (w > GARLIC_OUTPUT_WIDTH || h > GARLIC_OUTPUT_HEIGHT)) {
+        garlic_viewport target;
+        if (!garlic_compute_viewport(w,h,GARLIC_OUTPUT_WIDTH,GARLIC_OUTPUT_HEIGHT,&target)) return false;
+        rw=target.w;rh=target.h;
+    }
     if (w == 0 || h == 0 || rw == 0 || rh == 0 || rw > 2048 || rh > 2048)
         return false;
 
@@ -735,6 +753,9 @@ static bool garlic_apply_canvas_scaled(size_t w, size_t h, unsigned scale)
         soft_context.logical_screen_w = (float)w;
         soft_context.logical_screen_h = (float)h;
         soft_context.font = &font;
+        soft_context.scale_on_load_image=rw<w || rh<h;
+        soft_context.scale_on_load_image_w_ratio=(float)rw/w;
+        soft_context.scale_on_load_image_h_ratio=(float)rh/h;
         cpymo_backend_software_set_context(&soft_context);
         garlic_text_layer_configure();
         return true;
@@ -763,7 +784,9 @@ static bool garlic_apply_canvas_scaled(size_t w, size_t h, unsigned scale)
     soft_context.render_target = &soft_image;
     soft_context.logical_screen_w = (float)w;
     soft_context.logical_screen_h = (float)h;
-    soft_context.scale_on_load_image = false;
+    soft_context.scale_on_load_image = rw < w || rh < h;
+    soft_context.scale_on_load_image_w_ratio = (float)rw/w;
+    soft_context.scale_on_load_image_h_ratio = (float)rh/h;
     cpymo_backend_software_set_context(&soft_context);
     garlic_text_layer_configure();
     return true;
@@ -788,7 +811,7 @@ static void garlic_text_layer_configure(void)
     soft_context.text_layer_px = garlic_text_layer;
     soft_context.text_layer_w = GARLIC_OUTPUT_WIDTH;
     soft_context.text_layer_h = GARLIC_OUTPUT_HEIGHT;
-    soft_context.text_scale = (float)v.h / (float)soft_image.h;
+    soft_context.text_scale = (float)v.h / soft_context.logical_screen_h;
     soft_context.text_off_x = v.x;
     soft_context.text_off_y = v.y;
     soft_context.text_dirty_y0 = GARLIC_OUTPUT_HEIGHT;
@@ -878,7 +901,9 @@ static error_t garlic_after_game_selected(const char *gamedir)
         log_cb(RETRO_LOG_WARN, "save directory is not writable: %s\n",
                strerror(errno));
     }
+    uint64_t font_begin=garlic_stage_begin();
     error_t err = cpymo_backend_font_init(gamedir, garlic_menu_root);
+    garlic_stage_end(GARLIC_STAGE_FONT,font_begin);
     if (err != CPYMO_ERR_SUCC) {
         log_cb(RETRO_LOG_ERROR, "no font for %s: %s\n", gamedir,
                cpymo_error_message(err));
@@ -897,6 +922,9 @@ static error_t garlic_after_game_selected(const char *gamedir)
     snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", gamedir);
     garlic_screen = GARLIC_SCREEN_GAME;
     garlic_first_frame = true;
+    log_cb(RETRO_LOG_INFO,"CPYMO_RENDER logical=%ux%u target=%zux%zu preload_scale=%u text_scale=%.6f\n",
+        engine.gameconfig.imagesize_w,engine.gameconfig.imagesize_h,soft_image.w,soft_image.h,
+        (unsigned)soft_context.scale_on_load_image,soft_context.text_scale);
     log_cb(RETRO_LOG_INFO, "CPYMO_SELECT game=%s canvas=%ux%u\n", gamedir,
            (unsigned)engine.gameconfig.imagesize_w,
            (unsigned)engine.gameconfig.imagesize_h);
@@ -930,12 +958,14 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
 {
     char *dirs[64];
     size_t count = 0;
-    if (!garlic_scan_game_dirs(games_root, dirs, 64, &count) || count == 0) {
+    uint64_t scan_begin=garlic_stage_begin();
+    if (!garlic_scan_game_dirs(games_root, dirs, 64, &count)) {
         for (size_t i = 0; i < count; ++i) free(dirs[i]);
         log_cb(RETRO_LOG_INFO, "no game found under %s\n", games_root);
         return false;
     }
 
+    garlic_stage_end(GARLIC_STAGE_SCAN,scan_begin);
     cpymo_game_selector_item *items = NULL, *tail = NULL;
     for (size_t i = 0; i < count; ++i) {
         cpymo_game_selector_item *item = NULL;
@@ -959,7 +989,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
      * <games_root>/system/default.ttf is a candidate, and an explicit
      * CPYMO_MENU_FONT outranks it. */
     if (cpymo_backend_font_init(games_root,
-            initial_game && initial_game[0] ? initial_game : items->gamedir) != CPYMO_ERR_SUCC) {
+            initial_game && initial_game[0] ? initial_game : (items ? items->gamedir : NULL)) != CPYMO_ERR_SUCC) {
         log_cb(RETRO_LOG_ERROR,
                "no usable font for the menu (%s/system/default.ttf, "
                "$" GARLIC_MENU_FONT_ENV ")\n", games_root);
@@ -975,7 +1005,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     uint64_t tick = garlic_load_begin;
     error_t err = cpymo_engine_init_with_game_selector(
         &engine, GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT,
-        GARLIC_MENU_FONTSIZE, (float)GARLIC_MENU_FONTSIZE * 2.0f,
+        GARLIC_MENU_FONTSIZE, (float)GARLIC_MENU_FONTSIZE,
         GARLIC_MENU_NODES_PER_SCREEN,
         &items, &garlic_selector_before, &garlic_selector_after,
         &last_selected);
@@ -993,7 +1023,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     garlic_screen = GARLIC_SCREEN_MENU;
     float footer_width;
     cpymo_backend_text_create(&garlic_library_footer, &footer_width,
-        cpymo_str_pure("CPyMO 0.24.4   A：启动   ↑↓：选择   B：退出"), 16);
+        cpymo_str_pure("CPyMO 0.24.5   A：启动   ↑↓：选择   B：退出"), 16);
     garlic_prof_reset();
     {
         uint64_t now = garlic_micros();
@@ -1001,6 +1031,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
         log_cb(RETRO_LOG_INFO, "CPYMO_MENU root=%s games=%zu\n", games_root,
                count);
     }
+    garlic_stage_report("menu_ready");
     return true;
 }
 
@@ -1040,7 +1071,10 @@ static error_t garlic_start_queued_game(void)
     char gamedir[PATH_MAX];
     snprintf(gamedir, sizeof(gamedir), "%s", garlic_pending_game);
     garlic_pending_game[0] = 0;
+    garlic_stage_reset();uint64_t cleanup_begin=garlic_stage_begin();
     if (garlic_engine_ready) cpymo_engine_free(&engine);
+    garlic_image_cache_clear();
+    garlic_stage_end(GARLIC_STAGE_CLEANUP,cleanup_begin);
     garlic_engine_ready = false;
     garlic_toast_clear();
     memset(&engine, 0, sizeof(engine));
@@ -1072,7 +1106,8 @@ bool retro_load_game(const struct retro_game_info *game)
 {
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.4 font_steps=86/100 movie=AVI-MJPEG-PCM\n");
+    garlic_stage_enable(garlic_debug);garlic_stage_reset();
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=86/100 movie=disabled\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
@@ -1444,7 +1479,7 @@ void retro_run(void)
         tick = garlic_micros();
         cpymo_engine_draw(&engine);
         if (garlic_screen == GARLIC_SCREEN_MENU && garlic_library_footer)
-            cpymo_backend_text_draw(garlic_library_footer, 16, 478,
+            cpymo_backend_text_draw(garlic_library_footer, 16, 444,
                 cpymo_color_white, 1.0f, cpymo_backend_image_draw_type_ui_element);
         garlic_toast_draw();
         uint64_t after_draw = garlic_micros();
@@ -1472,7 +1507,7 @@ void retro_run(void)
 #endif
     tick = garlic_micros();
     bool movie_audio = false;
-#ifdef GARLIC_MP3_AUDIO
+#if defined(GARLIC_MP3_AUDIO) && defined(GARLIC_EXPERIMENTAL_MOVIE)
     movie_audio = garlic_movie_audio(audio_buffer, samples);
 #endif
     if (audio_enabled && !use_audio_callback) {
@@ -1510,12 +1545,17 @@ bool retro_load_game_special(unsigned game_type, const struct retro_game_info *i
 void retro_unload_game(void)
 {
     if (garlic_game_loaded) garlic_prof_report();
+    garlic_stage_report("unload");
     /* Engine release can call UI and save logic; keep the framebuffer context
        and the correct game directory alive until it has completed. */
     if (garlic_engine_ready) {
         cpymo_engine_free(&engine);
         garlic_engine_ready = false;
     }
+    size_t cache_bytes; unsigned cache_hits,cache_misses;
+    garlic_image_cache_counts(&cache_bytes,&cache_hits,&cache_misses);
+    log_cb(RETRO_LOG_INFO,"CPYMO_CACHE bytes=%zu hits=%u misses=%u\n",cache_bytes,cache_hits,cache_misses);
+    garlic_image_cache_clear();
     garlic_toast_clear();
     if (garlic_library_footer) cpymo_backend_text_free(garlic_library_footer);
     garlic_library_footer = NULL;

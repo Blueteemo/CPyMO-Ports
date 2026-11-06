@@ -29,6 +29,7 @@ typedef struct cpymo_list_ui {
 	cpymo_list_ui_get_node get_prev;
 	bool from_bottom_to_top;
 	float node_height;
+    float viewport_height;
 
 	float mouse_key_press_time;
 
@@ -60,7 +61,7 @@ static inline float cpymo_list_ui_get_y(const cpymo_engine *e, int relative_to_c
 	const cpymo_list_ui *ui = (cpymo_list_ui *)cpymo_ui_data_const(e);
 
 	return ui->from_bottom_to_top ?
-		(float)e->gameconfig.imagesize_h - (1 + relative_to_current) * ui->node_height - ui->current_y :
+		ui->viewport_height - (1 + relative_to_current) * ui->node_height - ui->current_y :
 		ui->current_y + relative_to_current * ui->node_height;
 }
 
@@ -78,14 +79,14 @@ static int cpymo_list_ui_get_selection_relative_to_cur_by_mouse(const cpymo_engi
 	const cpymo_list_ui *ui = (cpymo_list_ui *)cpymo_ui_data_const(e);
 
 	float y = ui->from_bottom_to_top ?
-		(float)e->gameconfig.imagesize_h - ui->node_height - ui->current_y :
+		ui->viewport_height - ui->node_height - ui->current_y :
 		ui->current_y;
 
 	void *prev = ui->get_prev(e, cpymo_list_ui_data_const(e), ui->current_node);
 	if (prev) {
 		float top = y - (ui->from_bottom_to_top ? -ui->node_height : ui->node_height);
 		float bottom = top + ui->node_height;
-		
+
 		if (mouse_y >= top && mouse_y < bottom) return -1;
 	}
 
@@ -94,7 +95,7 @@ static int cpymo_list_ui_get_selection_relative_to_cur_by_mouse(const cpymo_engi
 	void *node = ui->current_node;
 	while (ui->from_bottom_to_top ?
 		y > -ui->node_height :
-		y < (float)e->gameconfig.imagesize_h) {
+		y < ui->viewport_height) {
 
 		float bottom = y + ui->node_height;
 		if (mouse_y >= y && mouse_y < bottom) return cur;
@@ -135,7 +136,7 @@ static void cpymo_list_ui_fix_key_scroll(cpymo_engine *e)
 	float y = cpymo_list_ui_get_y(e, ui->selection_relative_to_cur);
 
 	bool a = y < 0;
-	bool b = y > e->gameconfig.imagesize_h - ui->node_height;
+	bool b = y > ui->viewport_height - ui->node_height;
 
 	if (ui->from_bottom_to_top) {
 		bool t = a;
@@ -195,12 +196,12 @@ static error_t cpymo_list_ui_update(cpymo_engine *e, void *ui_data, float d)
 		cpymo_key_hold_update(e, &ui->key_mouse_button, d, e->input.mouse_button);
 
 	if (CPYMO_INPUT_JUST_RELEASED(e, cancel)) {
-		cpymo_list_ui_exit(e); 
+		cpymo_list_ui_exit(e);
 		return CPYMO_ERR_SUCC;
 	}
 
 	float mouse_y_delta = 0;
-	if (e->prev_input.mouse_position_useable && 
+	if (e->prev_input.mouse_position_useable &&
 		e->input.mouse_position_useable)
 		mouse_y_delta = e->input.mouse_y - e->prev_input.mouse_y;
 
@@ -219,7 +220,7 @@ static error_t cpymo_list_ui_update(cpymo_engine *e, void *ui_data, float d)
 		float prev_speed = fabsf(ui->scroll_speed);
 		if (e->input.mouse_button) {
 			ui->scroll_speed = 0;
-			if (e->prev_input.mouse_position_useable && 
+			if (e->prev_input.mouse_position_useable &&
 				e->input.mouse_position_useable)
 				ui->scroll_speed = mouse_y_delta;
 		}
@@ -232,7 +233,7 @@ static error_t cpymo_list_ui_update(cpymo_engine *e, void *ui_data, float d)
 					if (ui->scroll_speed > 0) ui->scroll_speed -= spd_dec;
 					else ui->scroll_speed += spd_dec;
 
-					ui->current_y += 
+					ui->current_y +=
 						ui->from_bottom_to_top ?
 							-ui->scroll_speed : ui->scroll_speed;
 					scrolled = true;
@@ -260,7 +261,7 @@ static error_t cpymo_list_ui_update(cpymo_engine *e, void *ui_data, float d)
 		if (prev_speed > 0.0001f && cur_speed <= 0.0001f)
 			cpymo_engine_request_redraw(e);
 	}
-#endif	
+#endif
 
 	if ((e->input.mouse_button || e->input.mouse_wheel_delta || scrolled) && ui->allow_scroll) {
 		ui->mouse_key_press_time += d;
@@ -289,7 +290,7 @@ static error_t cpymo_list_ui_update(cpymo_engine *e, void *ui_data, float d)
 			b = a;
 			a = tmp;
 		}
-		
+
 		a = a && ui->current_y > 0;
 		b = b && ui->current_y < 0;
 
@@ -330,7 +331,7 @@ static error_t cpymo_list_ui_update(cpymo_engine *e, void *ui_data, float d)
 
 		if (!control_by_wheel) {
 			int s = cpymo_list_ui_get_selection_relative_to_cur_by_mouse(e);
-			if (s != INT_MAX) 
+			if (s != INT_MAX)
 				ui->selection_relative_to_cur = s;
 		}
 
@@ -415,7 +416,7 @@ static error_t cpymo_list_ui_update(cpymo_engine *e, void *ui_data, float d)
 #ifdef ENABLE_TEXT_EXTRACT_ANDROID_ACCESSIBILITY
 				cpymo_android_play_sound(SOUND_SELECT);
 #endif
-				error_t err = ui->selection_changed(e, 
+				error_t err = ui->selection_changed(e,
 					cpymo_list_ui_get_relative_id_to_cur(e, ui->selection_relative_to_cur));
 				CPYMO_THROW(err);
 			}
@@ -432,7 +433,7 @@ static error_t cpymo_list_ui_update(cpymo_engine *e, void *ui_data, float d)
 	}
 
 	if (mouse_button_state == cpymo_key_hold_result_just_hold && ui->scroll_delta_y_sum < 5.0f && ui->mouse_touch_move_y_sum < slide_limit) {
-		if (ui->just_hold_callback) 
+		if (ui->just_hold_callback)
 			return ui->just_hold_callback(e);
 		else {
 			cpymo_list_ui_exit(e);
@@ -487,15 +488,15 @@ static void cpymo_list_ui_draw(const cpymo_engine *e, const void *ui_data)
 
 	const cpymo_list_ui *ui = (cpymo_list_ui *)ui_data;
 
-	bool is_sliding = 
+	bool is_sliding =
 		e->input.mouse_button && ui->scroll_delta_y_sum >= slide_limit;
-	bool is_sliding_inertia = 
+	bool is_sliding_inertia =
 		fabs(ui->scroll_speed) > 0.001f && !e->input.mouse_button;
 	if (!is_sliding && !is_sliding_inertia) {
 		xywh[1] = cpymo_list_ui_get_y(e, ui->selection_relative_to_cur);
 		xywh[3] = ui->node_height;
 		cpymo_backend_image_fill_rects(
-			xywh, 1, cpymo_color_white, 0.5f, 
+			xywh, 1, cpymo_color_white, 0.5f,
 			cpymo_backend_image_draw_type_ui_element_bg);
 	}
 
@@ -508,20 +509,28 @@ static void cpymo_list_ui_draw(const cpymo_engine *e, const void *ui_data)
 	xywh[3] = ui->node_height;
 	cpymo_backend_image_fill_rects(xywh, 1, red, 0.5f, cpymo_backend_image_draw_type_bg);*/
 
-	float y = ui->from_bottom_to_top ? 
-		(float)e->gameconfig.imagesize_h - ui->node_height - ui->current_y : 
+	float y = ui->from_bottom_to_top ?
+		ui->viewport_height - ui->node_height - ui->current_y :
 		ui->current_y;
 
 	void *prev = ui->get_prev(e, cpymo_list_ui_data_const(e), ui->current_node);
 	if (prev) {
-		ui->draw_node(e, prev, y - (ui->from_bottom_to_top ? -ui->node_height : ui->node_height));	
-	}
+        float previous_y=y-(ui->from_bottom_to_top ? -ui->node_height : ui->node_height);
+        /* The RG35XX library reserves its footer: draw whole rows only.
+           In particular, an offscreen previous row's descenders must not
+           leak into the top edge after keyboard scrolling. */
+        if(ui->viewport_height >= e->gameconfig.imagesize_h ||
+           (previous_y>=0 && previous_y+ui->node_height<=ui->viewport_height))
+            ui->draw_node(e,prev,previous_y);
+    }
 
 	void *node = ui->current_node;
-	while (ui->from_bottom_to_top ? 
-			y > -ui->node_height : 
-			y < (float)e->gameconfig.imagesize_h) {
-		ui->draw_node(e, node, y);
+	while (ui->from_bottom_to_top ?
+			y > -ui->node_height :
+			y < ui->viewport_height) {
+        if(ui->viewport_height >= e->gameconfig.imagesize_h ||
+           (y>=0 && y+ui->node_height<=ui->viewport_height))
+            ui->draw_node(e,node,y);
 
 		y += ui->from_bottom_to_top ? -ui->node_height : ui->node_height;
 		node = ui->get_next(e, cpymo_list_ui_data_const(e), node);
@@ -566,6 +575,7 @@ error_t cpymo_list_ui_enter(
 	data->get_next = get_next;
 	data->get_prev = get_prev;
 	data->from_bottom_to_top = from_bottom_to_top;
+	data->viewport_height = e->gameconfig.imagesize_h;
 	data->node_height = (float)e->gameconfig.imagesize_h / nodes_per_screen;
 	data->current_y = 0;
 	data->selection_relative_to_cur = 0;
@@ -603,7 +613,7 @@ static error_t cpymo_list_ui_selecting_no_more_content_callback_looping(cpymo_en
 			if (next == NULL) break;
 			ui->current_node = next;
 		}
-		
+
 	}
 	else {
 		ui->selection_relative_to_cur = 0;
@@ -613,7 +623,7 @@ static error_t cpymo_list_ui_selecting_no_more_content_callback_looping(cpymo_en
 			ui->current_node = next;
 		}
 
-		int nodes_per_screen = (size_t)((float)e->gameconfig.imagesize_h / ui->node_height);
+		int nodes_per_screen = (size_t)(ui->viewport_height / ui->node_height);
 		while (ui->selection_relative_to_cur < nodes_per_screen - 1) {
 			void *prev = ui->get_prev(e, ui + 1, ui->current_node);
 			if (prev == NULL) break;
@@ -638,7 +648,7 @@ void cpymo_list_ui_exit(cpymo_engine * e)
 
 void cpymo_list_ui_enable_loop(cpymo_engine *e)
 {
-	cpymo_list_ui_set_selecting_no_more_content_callback(e, 
+	cpymo_list_ui_set_selecting_no_more_content_callback(e,
 		&cpymo_list_ui_selecting_no_more_content_callback_looping);
 }
 
@@ -679,4 +689,11 @@ void cpymo_list_ui_set_selection_relative_to_cur(struct cpymo_engine *e, int c)
 {
 	cpymo_list_ui *ui = (cpymo_list_ui *)cpymo_ui_data(e);
 	ui->selection_relative_to_cur = c;
+}
+void cpymo_list_ui_set_viewport_height(cpymo_engine *e,float height)
+{
+    cpymo_list_ui *ui=(cpymo_list_ui*)cpymo_ui_data_const(e);
+    if(height>0 && height<=e->gameconfig.imagesize_h){
+        ui->viewport_height=height;ui->node_height=height/ui->nodes_per_screen;
+    }
 }

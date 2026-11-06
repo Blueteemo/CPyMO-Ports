@@ -26,6 +26,10 @@ float cpymo_backend_text_width(
     cpymo_str,
     float single_character_size_in_logical_screen);
 
+#ifdef GARLIC_NO_FFMPEG
+float garlic_textbox_safe_height(cpymo_str,float,float,float);
+#endif
+
 #ifdef ENABLE_TEXT_EXTRACT
 void cpymo_backend_text_extract(const char *text);
 #else

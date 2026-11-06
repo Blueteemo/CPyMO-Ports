@@ -1,4 +1,5 @@
 #include "cpymo_prelude.h"
+#include "garlic_stages.h"
 #include "cpymo_script.h"
 #include <string.h>
 #include <stdlib.h>
@@ -8,6 +9,7 @@ error_t cpymo_script_load(
     cpymo_str script_name, 
     const cpymo_assetloader *l)
 {
+    uint64_t stage_begin=garlic_stage_begin();
     cpymo_script *script = 
         (cpymo_script *)malloc(sizeof(cpymo_script) + script_name.len + 1);
     if (script == NULL) return CPYMO_ERR_OUT_OF_MEM;
@@ -27,6 +29,7 @@ error_t cpymo_script_load(
     }
 
     *out = script;
+    garlic_stage_end(GARLIC_STAGE_SCRIPT,stage_begin);
     return CPYMO_ERR_SUCC;
 }
 

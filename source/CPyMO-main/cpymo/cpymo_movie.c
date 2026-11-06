@@ -389,11 +389,12 @@ error_t cpymo_movie_play(cpymo_engine * e, cpymo_str videoname)
 #ifdef DISABLE_MOVIE
 error_t cpymo_movie_play(cpymo_engine * e, cpymo_str videoname)
 {
-#ifdef GARLIC_MP3_AUDIO
+#if defined(GARLIC_MP3_AUDIO) && defined(GARLIC_EXPERIMENTAL_MOVIE)
     extern error_t garlic_movie_play(cpymo_engine *, cpymo_str);
     return garlic_movie_play(e, videoname);
 #else
-	return CPYMO_ERR_SUCC;
+    (void)e; (void)videoname;
+    return CPYMO_ERR_SUCC; /* RG35XX intentionally skips all movies. */
 #endif
 }
 #endif
