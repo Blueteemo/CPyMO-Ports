@@ -1,6 +1,8 @@
 /* Actual RG35XX load-time BOX filter versus independent double area integral. */
 #include "../../source/CPyMO-main/cpymo-backends/libretro/libretro.c"
 #include "../../source/CPyMO-main/stb/stb_image_resize.h"
+#include "../../source/CPyMO-main/cpymo-backends/include/cpymo_backend_image.h"
+extern void cpymo_backend_image_scale_on_load(void **,int *,int *,size_t);
 #define REQUIRE(x) do{if(!(x)){fprintf(stderr,"FAIL %d %s\n",__LINE__,#x);return 1;}}while(0)
 static void ppm(const char *file,const uint8_t *p){FILE *f=fopen(file,"wb");fprintf(f,"P6\n640 480\n255\n");fwrite(p,3,640*480,f);fclose(f);}
 int main(int argc,char **argv){

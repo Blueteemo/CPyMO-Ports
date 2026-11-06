@@ -30,7 +30,33 @@ static void graphics_checks(void)
             }
         }
     }
-    cpymo_backend_masktrans_free(m);free(pixels);soft_context=saved;
+    cpymo_backend_masktrans_free(m);
+    target.w=target.h=1;target.line_stride=3;
+    soft_context.logical_screen_w=soft_context.logical_screen_h=1;
+    uint8_t texel[4]={217,69,131,0};
+    cpymo_backend_software_image sprite={0};
+    sprite.w=sprite.h=sprite.source_w=sprite.source_h=1;
+    sprite.line_stride=sprite.pixel_stride=4;sprite.g_offset=1;sprite.b_offset=2;
+    sprite.a_offset=3;sprite.has_alpha_channel=true;sprite.pixels=texel;
+    unsigned max_error=0;
+    for(unsigned ga=0;ga<=256;ga++)for(unsigned sa=0;sa<256;sa++){
+        float alpha=ga/256.0f,a=cpymo_backend_software_u8f[sa]*alpha;
+        uint8_t before[3]={ga&255,sa,((ga+sa)*17)&255};
+        memcpy(pixels,before,3);texel[3]=sa;
+        cpymo_backend_image_draw(0,0,1,1,&sprite,0,0,1,1,alpha,cpymo_backend_image_draw_type_chara);
+        for(unsigned c=0;c<3;c++){
+            uint8_t expected=(uint8_t)((cpymo_backend_software_u8f[texel[c]]*a+cpymo_backend_software_u8f[before[c]]*(1-a))*255);
+            unsigned error=abs((int)pixels[c]-expected);if(error>max_error)max_error=error;CHECK(error<=1);
+        }
+        memcpy(pixels,before,3);float rect[]={0,0,1,1};cpymo_color col={217,69,131};
+        cpymo_backend_image_fill_rects(rect,1,col,alpha,cpymo_backend_image_draw_type_ui_bg);
+        for(unsigned c=0;c<3;c++){
+            uint8_t expected=(uint8_t)((cpymo_backend_software_u8f[texel[c]]*alpha+cpymo_backend_software_u8f[before[c]]*(1-alpha))*255);
+            CHECK(abs((int)pixels[c]-expected)<=1);
+        }
+    }
+    printf("Q16 image/fill versus former float max_error_byte=%u PASS\n",max_error);
+    free(pixels);soft_context=saved;
     garlic_image_cache_clear();cpymo_backend_image first=NULL;
     for(unsigned i=0;i<40;i++){
         uint8_t *p=calloc(640*480,3);CHECK(p);
