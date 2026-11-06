@@ -16,6 +16,8 @@
 
 static char outdir[2048];
 static unsigned frames, polls, captures;
+static uint32_t motion_hashes[512];
+static unsigned motion_samples, motion_unique, motion_black;
 static bool shutdown_requested;
 static bool capture_enabled=true;
 static uint16_t keys[12001];
@@ -67,6 +69,16 @@ static bool environment(unsigned cmd,void *data) {
 static void video(const void *pixels,unsigned w,unsigned h,size_t pitch) {
     if (!pixels || w!=640 || h!=480 || pitch<w*2) { fputs("empty frame\n",stderr); exit(3); }
     ++frames;
+    if (!(frames%30)) {
+        uint32_t hash=2166136261u; bool black=true;
+        for(unsigned y=0;y<h;y+=16)for(unsigned x=0;x<w;x+=16) {
+            uint16_t pixel;memcpy(&pixel,(const uint8_t*)pixels+y*pitch+x*2,2);
+            hash=(hash^pixel)*16777619u;if(pixel)black=false;
+        }
+        bool known=false;for(unsigned j=0;j<motion_unique;j++)if(motion_hashes[j]==hash)known=true;
+        if(!known&&motion_unique<512)motion_hashes[motion_unique++]=hash;
+        motion_samples++;if(black)motion_black++;
+    }
     if (!capture_enabled) return;
     if (frames%capture_every && frames!=max_frames) return;
     char name[2200]; snprintf(name,sizeof(name),"%s/frame_%04u.ppm",outdir,frames);
@@ -191,6 +203,7 @@ int main(int argc,char **argv) {
     hdr[36]='d';hdr[37]='a';hdr[38]='t';hdr[39]='a';unsigned ds=(unsigned)bytes;memcpy(hdr+40,&ds,4);
     if(fseek(wav,0,SEEK_SET) || fwrite(hdr,1,44,wav)!=44 || fclose(wav)) { perror("audio close");return 34; }
     double rms = wav_frames? sqrt(sumsq/(double)(wav_frames*2)) : 0;
+    printf("VIDEO samples=%u unique=%u black=%u\n",motion_samples,motion_unique,motion_black);
     printf("AUDIO frames=%ld peak=%.3f rms=%.4f pct=%ld video_frames=%u caps=%u shutdown=%d\n",
         wav_frames,peak,rms,wav_frames?nonnull*100/(wav_frames*2):0,frames,captures,shutdown_requested);
     return 0;
