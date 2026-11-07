@@ -251,9 +251,16 @@ void cpymo_engine_free(cpymo_engine *engine)
 		free(engine->interpreter);
 	}
 	cpymo_vars_free(&engine->vars);
+#ifdef GARLIC_NO_FFMPEG
+    /* The async mixer may still read borrowed package FILEs. Stop it before
+       the asset loader closes those streams. */
+    cpymo_audio_free(&engine->audio);
+#endif
 	cpymo_assetloader_free(&engine->assetloader);
 	if (engine->title) free(engine->title);
+#ifndef GARLIC_NO_FFMPEG
 	cpymo_audio_free(&engine->audio);
+#endif
 
 	#ifdef ENABLE_TEXT_EXTRACT
 	if (engine->text_extract_buffer) free(engine->text_extract_buffer);

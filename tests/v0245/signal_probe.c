@@ -27,6 +27,9 @@ int main(int argc,char **argv)
         }
     }
     if(!frames)frames=(mode==2 ? garlic_ch[0].rate : 48000)*8;
+#ifdef GARLIC_AUDIO_GAIN_IN_MIXER
+    if(getenv("PROBE_OUTPUT_PERCENT"))garlic_audio_set_output_percent((unsigned)strtoul(getenv("PROBE_OUTPUT_PERCENT"),NULL,10));
+#endif
     FILE *f=fopen(argv[2],"wb");if(!f)return 4;
     clock_t begin=clock();
     for(unsigned at=0;at<frames;){
@@ -39,7 +42,9 @@ int main(int argc,char **argv)
             if(fwrite(buf,4,n,f)!=n)return 4;
         } else if(mode){
             int16_t buf[1024];cpymo_audio_copy_mixed_samples(buf,n*4,&sys);
+#ifndef GARLIC_AUDIO_GAIN_IN_MIXER
             for(unsigned i=0;i<n*2;i++)buf[i]=(int16_t)((int32_t)buf[i]*50/100);
+#endif
             if(fwrite(buf,4,n,f)!=n)return 4;
         }else{
             int32_t buf[1024]={0};for(unsigned j=0;j<channels;j++)ch_mix(&garlic_ch[j],buf,n);

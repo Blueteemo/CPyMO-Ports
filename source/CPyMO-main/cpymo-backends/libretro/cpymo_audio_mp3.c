@@ -11,8 +11,8 @@
  * Files are streamed through a small ring buffer, so a 4 MB BGM costs ~64 KB
  * of RAM rather than 4 MB. Decoding runs on the emulation thread inside
  * cpymo_audio_copy_mixed_samples(), which libretro.c already calls once per
- * frame with 44100/60 stereo frames; the mixing is therefore lock-free in the
- * batch path RetroArch uses.
+ * frame with 48000/60 stereo frames. A short audio-only mutex also protects
+ * the optional frontend callback path; UI rendering never owns this lock.
  */
 #if defined(DISABLE_FFMPEG_AUDIO) && !defined(DISABLE_AUDIO)
 
@@ -33,6 +33,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "garlic_audio_sync.h"
+#define GARLIC_AUDIO_GAIN_IN_MIXER 1
 
 /* PyMO ports on Android/PC ship Ogg Vorbis and WAV; both are decoded here so a
  * game directory never has to be converted. stb_vorbis is public domain. */
@@ -43,7 +45,7 @@
 /* RG35XX/GarlicOS runs RetroArch at 48 kHz; matching it keeps the frontend
  * resampler out of the chain. */
 #define GARLIC_AUDIO_OUT_RATE 48000
-/* Windowed-sinc resampler: 16 taps over 256 fractional phases (~8 KB per
+/* Windowed-sinc resampler: 16 taps over 512 fractional phases plus a continuous endpoint (~8 KB per
  * channel, built once per play). Images of a 12 kHz tone fall from -21 dB
  * (cubic) to below -70 dB. */
 #define GARLIC_AUDIO_RES_TAPS 16
@@ -72,7 +74,7 @@ typedef struct {
     int16_t vorbuf[4096 * 2];
     size_t pcm_frames, pcm_cur;
     uint64_t decoded_frames, output_frames;
-    /* Windowed-sinc interpolator: TAPS source frames, a 256-phase kernel for
+    /* Windowed-sinc interpolator: TAPS source frames, a 512-phase kernel for
      * the current step, and the fractional read position. `fade` hides the
      * seam after a loop restart. */
     int16_t win[GARLIC_AUDIO_RES_TAPS][2];
@@ -88,6 +90,10 @@ typedef struct {
 static garlic_mp3_channel garlic_ch[CPYMO_AUDIO_MAX_CHANNELS];
 static bool ch_build_resampler(garlic_mp3_channel *c);
 static int garlic_audio_ready = 0;
+static unsigned garlic_mixer_output_percent = 50;
+static float garlic_limiter_gain = 1.0f;
+static unsigned garlic_limiter_hold;
+static void cpymo_audio_free_unlocked(cpymo_audio_system *s);
 
 /* --- channel lifecycle ------------------------------------------------ */
 
@@ -483,12 +489,12 @@ static bool ch_build_resampler(garlic_mp3_channel *c)
     const int half = taps / 2;
     if (c->res_tab && c->res_step == c->step) return true;
     if (!c->res_tab) {
-        c->res_tab = (int16_t *)malloc((size_t)phases * taps * sizeof(int16_t));
+        c->res_tab = (int16_t *)malloc((size_t)(phases + 1) * taps * sizeof(int16_t));
         if (!c->res_tab) return false;
     }
 
-    for (int p = 0; p < phases; ++p) {
-        double t = ((double)p + 0.5) / (double)phases;
+    for (int p = 0; p <= phases; ++p) {
+        double t = (double)p / (double)phases;
         double coef[GARLIC_AUDIO_RES_TAPS];
         double sum = 0;
         for (int k = 0; k < taps; ++k) {
@@ -589,9 +595,9 @@ static void ch_mix(garlic_mp3_channel *c, int32_t *out, size_t frames)
             gain_q = gain_q * (int)c->fade / (int)c->fade_len;
 
         /* Interpolate between two table phases with the leftover fraction, so
-         * the 1024-entry table does not quantise the delay. */
+         * the phase table does not quantise the delay. */
         size_t ph = (size_t)(c->frac >> GARLIC_AUDIO_RES_SHIFT);
-        size_t ph2 = ph + 1 < GARLIC_AUDIO_RES_PHASES ? ph + 1 : 0;
+        size_t ph2 = ph + 1;
         int sub = (int)(c->frac & ((1u << GARLIC_AUDIO_RES_SHIFT) - 1u));
         const int16_t *c0 = tab + ph * GARLIC_AUDIO_RES_TAPS;
         const int16_t *c1 = tab + ph2 * GARLIC_AUDIO_RES_TAPS;
@@ -624,7 +630,7 @@ static void ch_mix(garlic_mp3_channel *c, int32_t *out, size_t frames)
     c->output_frames += produced;
 }
 
-void cpymo_audio_copy_mixed_samples(void *dst, size_t len, cpymo_audio_system *s)
+static void cpymo_audio_copy_mixed_samples_unlocked(void *dst, size_t len, cpymo_audio_system *s)
 {
     (void)s;
     int16_t *out = (int16_t *)dst;
@@ -641,25 +647,44 @@ void cpymo_audio_copy_mixed_samples(void *dst, size_t len, cpymo_audio_system *s
         for (int i = 0; i < CPYMO_AUDIO_MAX_CHANNELS; ++i)
             if (garlic_ch[i].active) ch_mix(&garlic_ch[i], chunk, n);
 
-        for (size_t i = 0; i < n * 2; ++i) {
-            /* BGM, SE and voice are summed at the engine's own volumes, so a
-             * loud SE over a loud BGM can pass full scale. Above -3 dBFS a
-             * soft knee bends the peaks instead of clipping them. */
-            float x = (float)chunk[i] / 32768.0f;
-            float ax = fabsf(x);
-#ifndef GARLIC_AUDIO_NO_LIMIT
-            if (ax > 0.72f) {
-                ax = 0.72f + 0.28f * (1.0f - expf(-(ax - 0.72f) / 0.28f));
-                x = x < 0 ? -ax : ax;
-            }
-#endif
-            out[done * 2 + i] = (int16_t)(x * 32767.0f);
+        /* Ordinary music needs no envelope processing. Keep that common path
+           to a peak scan and one linear scale, with the same rounding. */
+        float master = (float)garlic_mixer_output_percent / 100.0f;
+        bool linear = garlic_limiter_gain == 1.0f && garlic_limiter_hold == 0;
+        if (linear) for (size_t i = 0; i < n * 2; ++i)
+            if (chunk[i] < -32767 || chunk[i] > 32767) { linear = false; break; }
+        if (linear) {
+            for (size_t i = 0; i < n * 2; ++i)
+                out[done * 2 + i] = (int16_t)((float)chunk[i] * master);
+            done += n;
+            continue;
+        }
+
+        /* Leave ordinary music linear. Only a true sum above full scale
+           engages the linked stereo limiter. Immediate peak protection and
+           an 80 ms release preserve the existing output ceiling without the
+           old always-on -3 dB soft-knee distortion or per-sample expf(). */
+        for (size_t i = 0; i < n; ++i) {
+            float left = (float)chunk[i * 2], right = (float)chunk[i * 2 + 1];
+            float peak = fabsf(left), right_peak = fabsf(right);
+            if (right_peak > peak) peak = right_peak;
+            float target = peak > 32767.0f ? 32767.0f / peak : 1.0f;
+            if (target < garlic_limiter_gain) {
+                garlic_limiter_gain = target;
+                garlic_limiter_hold = 240;
+            } else if (peak > 32767.0f) garlic_limiter_hold = 240;
+            else if (garlic_limiter_hold) --garlic_limiter_hold;
+            else garlic_limiter_gain += (1.0f - garlic_limiter_gain) * (1.0f / 3840.0f);
+            if (!garlic_limiter_hold && garlic_limiter_gain > .9999f) garlic_limiter_gain = 1.0f;
+            float gain = garlic_limiter_gain * master;
+            out[(done + i) * 2] = (int16_t)(left * gain);
+            out[(done + i) * 2 + 1] = (int16_t)(right * gain);
         }
         done += n;
     }
 }
 
-bool cpymo_audio_channel_get_samples(
+static bool cpymo_audio_channel_get_samples_unlocked(
     void **samples, size_t *len, size_t cid, cpymo_audio_system *s)
 {
     (void)s; (void)cid;
@@ -670,18 +695,20 @@ bool cpymo_audio_channel_get_samples(
 
 /* --- engine API ------------------------------------------------------- */
 
-void cpymo_audio_init(cpymo_audio_system *s)
+static void cpymo_audio_init_unlocked(cpymo_audio_system *s)
 {
-    if (garlic_audio_ready) cpymo_audio_free(s);
+    if (garlic_audio_ready) cpymo_audio_free_unlocked(s);
     for (int i = 0; i < CPYMO_AUDIO_MAX_CHANNELS; ++i) {
         garlic_mp3_channel *c = &garlic_ch[i];
         memset(c, 0, sizeof(*c));
         c->volume = 1.0f;
     }
+    garlic_limiter_gain = 1.0f;
+    garlic_limiter_hold = 0;
     garlic_audio_ready = 1;
 }
 
-void cpymo_audio_free(cpymo_audio_system *s)
+static void cpymo_audio_free_unlocked(cpymo_audio_system *s)
 {
     (void)s;
     for (int i = 0; i < CPYMO_AUDIO_MAX_CHANNELS; ++i) {
@@ -697,20 +724,20 @@ void cpymo_audio_free(cpymo_audio_system *s)
     garlic_audio_ready = 0;
 }
 
-bool cpymo_audio_enabled(struct cpymo_engine *e)
+static bool cpymo_audio_enabled_unlocked(struct cpymo_engine *e)
 {
     (void)e;
     return garlic_audio_ready != 0;
 }
 
-float cpymo_audio_get_channel_volume(
+static float cpymo_audio_get_channel_volume_unlocked(
     size_t cid, const cpymo_audio_system *s)
 {
     (void)s;
     return cid < CPYMO_AUDIO_MAX_CHANNELS ? garlic_ch[cid].volume : 0.0f;
 }
 
-void cpymo_audio_set_channel_volume(
+static void cpymo_audio_set_channel_volume_unlocked(
     size_t cid, cpymo_audio_system *s, float volume)
 {
     (void)s;
@@ -720,20 +747,20 @@ void cpymo_audio_set_channel_volume(
     garlic_ch[cid].volume = volume;
 }
 
-bool cpymo_audio_channel_is_playing(size_t cid, cpymo_audio_system *s)
+static bool cpymo_audio_channel_is_playing_unlocked(size_t cid, cpymo_audio_system *s)
 {
     (void)s;
     return cid < CPYMO_AUDIO_MAX_CHANNELS && garlic_ch[cid].active;
 }
 
-bool cpymo_audio_channel_is_looping(size_t cid, cpymo_audio_system *s)
+static bool cpymo_audio_channel_is_looping_unlocked(size_t cid, cpymo_audio_system *s)
 {
     (void)s;
     return cid < CPYMO_AUDIO_MAX_CHANNELS && garlic_ch[cid].active &&
         garlic_ch[cid].loop;
 }
 
-bool cpymo_audio_wait_se(struct cpymo_engine *e, float d)
+static bool cpymo_audio_wait_se_unlocked(struct cpymo_engine *e, float d)
 {
     (void)d;
     /* B must be able to cut a long SE short, as in the original engine. */
@@ -741,7 +768,7 @@ bool cpymo_audio_wait_se(struct cpymo_engine *e, float d)
     return !garlic_ch[CPYMO_AUDIO_CHANNEL_SE].active;
 }
 
-error_t cpymo_audio_bgm_play(cpymo_engine *e, cpymo_str name, bool loop)
+static error_t cpymo_audio_bgm_play_unlocked(cpymo_engine *e, cpymo_str name, bool loop)
 {
     char *path = NULL;
     error_t err = cpymo_assetloader_get_bgm_path(&path, name, &e->assetloader);
@@ -752,7 +779,7 @@ error_t cpymo_audio_bgm_play(cpymo_engine *e, cpymo_str name, bool loop)
     return played;
 }
 
-error_t cpymo_audio_se_play(cpymo_engine *e, cpymo_str name, bool loop)
+static error_t cpymo_audio_se_play_unlocked(cpymo_engine *e, cpymo_str name, bool loop)
 {
     if (e->assetloader.use_pkg_se) {
         cpymo_package_stream_reader r;
@@ -770,7 +797,7 @@ error_t cpymo_audio_se_play(cpymo_engine *e, cpymo_str name, bool loop)
     return ch_play(CPYMO_AUDIO_CHANNEL_SE, path, NULL, name, loop);
 }
 
-error_t cpymo_audio_vo_play(cpymo_engine *e, cpymo_str name)
+static error_t cpymo_audio_vo_play_unlocked(cpymo_engine *e, cpymo_str name)
 {
     if (e->assetloader.use_pkg_voice) {
         cpymo_package_stream_reader r;
@@ -788,7 +815,7 @@ error_t cpymo_audio_vo_play(cpymo_engine *e, cpymo_str name)
     return ch_play(CPYMO_AUDIO_CHANNEL_VO, path, NULL, name, false);
 }
 
-void cpymo_audio_bgm_stop(struct cpymo_engine *e)
+static void cpymo_audio_bgm_stop_unlocked(struct cpymo_engine *e)
 {
     (void)e;
     ch_trace_bgm("stop", &garlic_ch[CPYMO_AUDIO_CHANNEL_BGM],
@@ -796,26 +823,26 @@ void cpymo_audio_bgm_stop(struct cpymo_engine *e)
     ch_stop(&garlic_ch[CPYMO_AUDIO_CHANNEL_BGM]);
 }
 
-void cpymo_audio_se_stop(struct cpymo_engine *e)
+static void cpymo_audio_se_stop_unlocked(struct cpymo_engine *e)
 {
     (void)e;
     ch_stop(&garlic_ch[CPYMO_AUDIO_CHANNEL_SE]);
 }
 
-void cpymo_audio_vo_stop(struct cpymo_engine *e)
+static void cpymo_audio_vo_stop_unlocked(struct cpymo_engine *e)
 {
     (void)e;
     ch_stop(&garlic_ch[CPYMO_AUDIO_CHANNEL_VO]);
 }
 
-const char *cpymo_audio_get_bgm_name(struct cpymo_engine *e)
+static const char * cpymo_audio_get_bgm_name_unlocked(struct cpymo_engine *e)
 {
     (void)e;
     return garlic_ch[CPYMO_AUDIO_CHANNEL_BGM].active && garlic_ch[CPYMO_AUDIO_CHANNEL_BGM].name
         ? garlic_ch[CPYMO_AUDIO_CHANNEL_BGM].name : "";
 }
 
-const char *cpymo_audio_get_se_name(struct cpymo_engine *e)
+static const char * cpymo_audio_get_se_name_unlocked(struct cpymo_engine *e)
 {
     (void)e;
     /* The legacy save slot stores only a persistent, looping SE name; load
@@ -826,7 +853,7 @@ const char *cpymo_audio_get_se_name(struct cpymo_engine *e)
     return c->active && c->loop && c->name ? c->name : "";
 }
 
-error_t cpymo_audio_play_video(struct cpymo_engine *e, const char *path)
+static error_t cpymo_audio_play_video_unlocked(struct cpymo_engine *e, const char *path)
 {
     (void)e;
     char *p = NULL;
@@ -838,6 +865,163 @@ error_t cpymo_audio_play_video(struct cpymo_engine *e, const char *path)
     }
     return ch_play(CPYMO_AUDIO_CHANNEL_BGM, p, NULL,
         (cpymo_str){ "", 0 }, false);
+}
+
+/* Frontend callbacks may run while the main thread changes channels or frees
+   an engine. Only audio state is locked; menu layout/rendering never owns it. */
+void garlic_audio_set_output_percent(unsigned percent)
+{
+    garlic_audio_lock();
+    garlic_mixer_output_percent = percent > 100 ? 100 : percent;
+    garlic_audio_unlock();
+}
+
+void cpymo_audio_copy_mixed_samples(void *dst, size_t len, cpymo_audio_system *s)
+{
+    garlic_audio_lock();
+    cpymo_audio_copy_mixed_samples_unlocked(dst, len, s);
+    garlic_audio_unlock();
+}
+
+bool cpymo_audio_channel_get_samples(
+    void **samples, size_t *len, size_t cid, cpymo_audio_system *s)
+{
+    garlic_audio_lock();
+    bool result = cpymo_audio_channel_get_samples_unlocked(samples, len, cid, s);
+    garlic_audio_unlock();
+    return result;
+}
+
+void cpymo_audio_init(cpymo_audio_system *s)
+{
+    garlic_audio_lock();
+    cpymo_audio_init_unlocked(s);
+    garlic_audio_unlock();
+}
+
+void cpymo_audio_free(cpymo_audio_system *s)
+{
+    garlic_audio_lock();
+    cpymo_audio_free_unlocked(s);
+    garlic_audio_unlock();
+}
+
+bool cpymo_audio_enabled(struct cpymo_engine *e)
+{
+    garlic_audio_lock();
+    bool result = cpymo_audio_enabled_unlocked(e);
+    garlic_audio_unlock();
+    return result;
+}
+
+float cpymo_audio_get_channel_volume(
+    size_t cid, const cpymo_audio_system *s)
+{
+    garlic_audio_lock();
+    float result = cpymo_audio_get_channel_volume_unlocked(cid, s);
+    garlic_audio_unlock();
+    return result;
+}
+
+void cpymo_audio_set_channel_volume(
+    size_t cid, cpymo_audio_system *s, float volume)
+{
+    garlic_audio_lock();
+    cpymo_audio_set_channel_volume_unlocked(cid, s, volume);
+    garlic_audio_unlock();
+}
+
+bool cpymo_audio_channel_is_playing(size_t cid, cpymo_audio_system *s)
+{
+    garlic_audio_lock();
+    bool result = cpymo_audio_channel_is_playing_unlocked(cid, s);
+    garlic_audio_unlock();
+    return result;
+}
+
+bool cpymo_audio_channel_is_looping(size_t cid, cpymo_audio_system *s)
+{
+    garlic_audio_lock();
+    bool result = cpymo_audio_channel_is_looping_unlocked(cid, s);
+    garlic_audio_unlock();
+    return result;
+}
+
+bool cpymo_audio_wait_se(struct cpymo_engine *e, float d)
+{
+    garlic_audio_lock();
+    bool result = cpymo_audio_wait_se_unlocked(e, d);
+    garlic_audio_unlock();
+    return result;
+}
+
+error_t cpymo_audio_bgm_play(cpymo_engine *e, cpymo_str name, bool loop)
+{
+    garlic_audio_lock();
+    error_t result = cpymo_audio_bgm_play_unlocked(e, name, loop);
+    garlic_audio_unlock();
+    return result;
+}
+
+error_t cpymo_audio_se_play(cpymo_engine *e, cpymo_str name, bool loop)
+{
+    garlic_audio_lock();
+    error_t result = cpymo_audio_se_play_unlocked(e, name, loop);
+    garlic_audio_unlock();
+    return result;
+}
+
+error_t cpymo_audio_vo_play(cpymo_engine *e, cpymo_str name)
+{
+    garlic_audio_lock();
+    error_t result = cpymo_audio_vo_play_unlocked(e, name);
+    garlic_audio_unlock();
+    return result;
+}
+
+void cpymo_audio_bgm_stop(struct cpymo_engine *e)
+{
+    garlic_audio_lock();
+    cpymo_audio_bgm_stop_unlocked(e);
+    garlic_audio_unlock();
+}
+
+void cpymo_audio_se_stop(struct cpymo_engine *e)
+{
+    garlic_audio_lock();
+    cpymo_audio_se_stop_unlocked(e);
+    garlic_audio_unlock();
+}
+
+void cpymo_audio_vo_stop(struct cpymo_engine *e)
+{
+    garlic_audio_lock();
+    cpymo_audio_vo_stop_unlocked(e);
+    garlic_audio_unlock();
+}
+
+const char * cpymo_audio_get_bgm_name(struct cpymo_engine *e)
+{
+    garlic_audio_lock();
+    const char * result = cpymo_audio_get_bgm_name_unlocked(e);
+    garlic_audio_unlock();
+    return result;
+}
+
+const char * cpymo_audio_get_se_name(struct cpymo_engine *e)
+{
+    garlic_audio_lock();
+    const char * result = cpymo_audio_get_se_name_unlocked(e);
+    garlic_audio_unlock();
+    return result;
+}
+
+error_t cpymo_audio_play_video(struct cpymo_engine *e, const char *path)
+{
+    garlic_audio_lock();
+    error_t result = cpymo_audio_play_video_unlocked(e, path);
+    garlic_audio_unlock();
+    return result;
 }
 
 #endif

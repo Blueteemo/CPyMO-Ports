@@ -147,6 +147,8 @@ APPHOME="$APPDIR/CPyMO"
 LOGDIR="$APPHOME/logs"
 mkdir -p "$LOGDIR" || exit 46
 LOG="${CPYMO_LOG:-$LOGDIR/launcher.log}"
+CPYMO_AUDIO_REPORT="${CPYMO_AUDIO_REPORT:-$LOGDIR/audio-status.txt}"
+export CPYMO_AUDIO_REPORT
 # No source/eval of a writable settings file. Only a validated number is read.
 if [ -z "${CPYMO_OUTPUT_PERCENT:-}" ]; then
     CPYMO_OUTPUT_PERCENT=50
@@ -343,7 +345,7 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
 {
     echo '=== CPyMO RG35XX GarlicOS/uClibc launcher ==='
-    echo 'launcher_revision=0.24.5-hwfix1'
+    echo 'launcher_revision=0.24.5-audio7'
     echo "time=$(date 2>/dev/null)"
     echo "script=$0"
     echo "launcher=$SELF"

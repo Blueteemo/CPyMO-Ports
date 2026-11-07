@@ -49,7 +49,7 @@ static void                            fallback_log(enum retro_log_level level, 
 static void garlic_log(enum retro_log_level level, const char *fmt, ...);
 static retro_log_printf_t              log_cb = garlic_log;
 static retro_log_printf_t              frontend_log = fallback_log;
-static bool garlic_debug;
+static _Atomic bool garlic_debug;
 static char garlic_log_path[PATH_MAX];
 static FILE *garlic_log_file;
 static size_t garlic_log_bytes;
@@ -210,7 +210,7 @@ static struct SwsContext              *movie_sws;
 #endif
 static size_t                          movie_height;
 static bool                            use_audio_callback = false;
-static bool                            audio_enabled = true;
+static _Atomic bool                    audio_enabled = true;
 #ifndef GARLIC_NO_FFMPEG
 static mtx_t                           audio_mutex;
 /* The mutex is only initialised when the frontend accepts
@@ -445,7 +445,7 @@ void garlic_audio_trace(const char *event, const char *name,
     uint64_t output_frames, uint64_t source_cursor, long file_offset,
     const cpymo_engine *e)
 {
-    if (!garlic_debug) return;
+    if (!garlic_debug || use_audio_callback) return;
     log_cb(RETRO_LOG_INFO,
         "BGM event=%s name=%s out48k=%llu source=%llu file=%ld script=%s line=%u\n",
         event, name ? name : "", (unsigned long long)output_frames,
@@ -456,6 +456,9 @@ void garlic_audio_trace(const char *event, const char *name,
 
 /* Linear gain after the existing mixer/resampler, identical for all channels.
  * A 0..100% gain cannot introduce clipping or alter game channel settings. */
+#ifdef GARLIC_MP3_AUDIO
+extern void garlic_audio_set_output_percent(unsigned);
+#endif
 static void garlic_output_gain(int16_t *samples, size_t count)
 {
     for (size_t i = 0; i < count; ++i)
@@ -482,7 +485,9 @@ static void audio_callback(void)
 #ifndef GARLIC_NO_FFMPEG
     if (audio_mutex_initialized) mtx_unlock(&audio_mutex);
 #endif
+#ifndef GARLIC_MP3_AUDIO
     garlic_output_gain(audio_buffer, samples * 2);
+#endif
     audio_batch_cb(audio_buffer, samples);
 }
 
@@ -514,6 +519,17 @@ void retro_set_environment(retro_environment_t cb)
         }
 #endif
     }
+}
+
+static void garlic_write_audio_report(void)
+{
+    const char *path = getenv("CPYMO_AUDIO_REPORT");
+    if (!path || !*path) return;
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    fprintf(f, "core_audio=phase-headroom7\nfrontend_audio_callback=%s\noutput_rate=48000\noutput_percent=%u\nresampler_taps=16\nresampler_phase_endpoint=continuous\nlimiter=linked_peak_5ms_hold_80ms_release\nhardware_listening=pending\n",
+        use_audio_callback ? "accepted" : "rejected_sync_fallback", garlic_output_percent);
+    fclose(f);
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb)
@@ -1119,12 +1135,16 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=rollback-v0244 ui=visual-polish6\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=phase-headroom7 ui=visual-polish6\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
     garlic_output_percent = pct && (pct_end == pct || *pct_end || pct_value < 0 || pct_value > 100)
         ? 50 : (unsigned)pct_value;
+#ifdef GARLIC_MP3_AUDIO
+    garlic_audio_set_output_percent(garlic_output_percent);
+#endif
+    garlic_write_audio_report();
     garlic_prev_buttons = 0;
     garlic_drain_buttons = false;
     error_t err;
@@ -1564,7 +1584,11 @@ void retro_run(void)
     if (audio_enabled && !use_audio_callback) {
         if (!movie_audio)
             cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
+    #ifndef GARLIC_MP3_AUDIO
         garlic_output_gain(audio_buffer, samples * 2);
+#else
+        if (movie_audio) garlic_output_gain(audio_buffer, samples * 2);
+#endif
         audio_batch_cb(audio_buffer, samples);
     }
     garlic_prof_audio_us += garlic_micros() - tick;
