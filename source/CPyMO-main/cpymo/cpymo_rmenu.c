@@ -190,7 +190,7 @@ static void cpymo_rmenu_draw(const cpymo_engine *e, const void *ui_data)
 		cpymo_backend_image_draw_type_ui_element_bg);
 
 #ifdef GARLIC_NO_FFMPEG
-    if(r->clock_text)cpymo_backend_text_draw(r->clock_text,r->panel[0]+r->padding,
+    if(r->clock_text)cpymo_backend_text_draw(r->clock_text,r->panel[0]+r->padding+e->gameconfig.imagesize_h/60.0f,
         garlic_text_centered_baseline(r->clock_text,r->panel[1]+r->header_height/2),
         cpymo_color_white,1,cpymo_backend_image_draw_type_ui_element);
 #endif

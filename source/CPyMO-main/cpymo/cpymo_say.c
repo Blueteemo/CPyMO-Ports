@@ -446,7 +446,7 @@ error_t cpymo_say_reflow_textbox(cpymo_engine *e, float character_size)
     if (!e->say.textbox_usable || !tb->chars_pool || tb->char_size == character_size)
         return CPYMO_ERR_SUCC;
     float old_x = tb->x, old_w = tb->w;
-    float delta = (character_size - tb->char_size) * 0.5f;
+    float delta = (character_size - tb->char_size) * 0.4375f;
     tb->x += delta;
     tb->w -= delta;
     error_t err = cpymo_textbox_reflow(tb, character_size);
@@ -529,9 +529,9 @@ error_t cpymo_say_start(cpymo_engine *e, cpymo_str name, cpymo_str text)
 #endif
 
 #ifdef GARLIC_NO_FFMPEG
-    /* Give dialogue a half-em inset while preserving its authored right edge. */
-    x += fontsize * 0.5f;
-    w -= fontsize * 0.5f;
+    /* Give dialogue a 7/16-em inset while preserving its authored right edge. */
+    x += fontsize * 0.4375f;
+    w -= fontsize * 0.4375f;
 #endif
 
 	float y = (float)e->gameconfig.imagesize_h - msg_h + msgtb_t;

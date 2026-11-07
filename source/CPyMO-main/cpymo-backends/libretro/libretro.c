@@ -1026,7 +1026,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     garlic_screen = GARLIC_SCREEN_MENU;
     float footer_width;
     cpymo_backend_text_create(&garlic_library_footer, &footer_width,
-        cpymo_str_pure("CPyMO 0.24.5   A：启动   ↑↓：选择   B：退出"), 16);
+        cpymo_str_pure("CPyMO 0.24.5   A：启动   ↑↓：选择   B：退出"), 18);
     garlic_prof_reset();
     {
         uint64_t now = garlic_micros();
@@ -1119,7 +1119,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=rollback-v0244 ui=dialogue-half-em5\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=rollback-v0244 ui=visual-polish6\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
