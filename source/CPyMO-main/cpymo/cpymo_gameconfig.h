@@ -36,7 +36,7 @@ typedef struct {
 	char scripttype[4];
 	uint16_t fontsize;
 #ifdef GARLIC_NO_FFMPEG
-    uint8_t garlic_font_large; /* legacy field: 0 default(80%), 1 large(88%), 2 small(72%); UI sidecar only */
+    uint8_t garlic_font_large; /* legacy field: 0 default(74%), 2 small(72%); legacy 1 falls back to default; UI sidecar only */
     bool garlic_read_gray;
 #endif
 	int16_t nameboxorg_x, nameboxorg_y;
@@ -81,7 +81,7 @@ static inline float cpymo_gameconfig_font_size(const cpymo_gameconfig *c)
 {
     float size = c->fontsize / 240.0f * c->imagesize_h * 0.8f;
 #ifdef GARLIC_NO_FFMPEG
-    size *= c->garlic_font_large == 2 ? 0.72f : c->garlic_font_large == 1 ? 0.88f : 0.80f;
+    size *= c->garlic_font_large == 2 ? 0.72f : 0.74f;
 #endif
     return size;
 }

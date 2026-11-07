@@ -201,7 +201,6 @@ static float             garlic_toast_left;
 static float             garlic_toast_w, garlic_toast_h;
 static uint32_t          garlic_prev_buttons;
 static bool              garlic_drain_buttons;
-static bool              garlic_boot_skip_pressed;
 #ifdef GARLIC_UI_DEBUG
 static unsigned          polls_dbg;
 #endif
@@ -1059,7 +1058,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     garlic_screen = GARLIC_SCREEN_MENU;
     float footer_width;
     cpymo_backend_text_create(&garlic_library_footer, &footer_width,
-        cpymo_str_pure("CPyMO 0.24.5   A：启动   ↑↓：选择   B：退出"), 18);
+        cpymo_str_pure("CPyMO 0.24.5   A：启动   ↑↓：选择   B：退出"), 19);
     garlic_prof_reset();
     {
         uint64_t now = garlic_micros();
@@ -1152,7 +1151,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=phase-headroom7 ui=clock-inset8\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/74 movie=disabled audio=phase-headroom7 ui=reading-layout9\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
@@ -1429,7 +1428,6 @@ static void input_update(void)
     garlic_actions a = garlic_map_buttons(b, cpymo_ui_enabled(&engine),
         script_menu, pick_a_slot);
     uint32_t pressed = b & ~garlic_prev_buttons;
-    garlic_boot_skip_pressed=!garlic_drain_buttons && (pressed & GARLIC_BUTTON_A);
     if (garlic_screen == GARLIC_SCREEN_MENU && !garlic_drain_buttons &&
         (pressed & GARLIC_BUTTON_B))
         garlic_exit_requested = true;
@@ -1475,30 +1473,6 @@ static void input_update(void)
     if (garlic_drain_buttons) engine.input = input;
 }
 
-/* One fresh A press skips the bootstrap logo sequence, not a game script.
-   Finish/free the pending logo transition before moving to the boot end label,
-   and drain the press so it cannot advance the first dialogue or choice. */
-static error_t garlic_skip_boot_logos(void)
-{
-    if(garlic_screen!=GARLIC_SCREEN_GAME || !garlic_boot_skip_pressed || !input.ok ||
-       cpymo_ui_enabled(&engine) || !engine.interpreter ||
-       engine.interpreter->script->script_name[0] || !engine.bg.current_bg_name ||
-       (strcmp(engine.bg.current_bg_name,"logo1") && strcmp(engine.bg.current_bg_name,"logo2")))
-        return CPYMO_ERR_SUCC;
-    cpymo_tween_finish(&engine.bg.transform_progression);
-    extern void cpymo_bg_transfer_operate(cpymo_engine *);
-    cpymo_bg_transfer_operate(&engine);
-    engine.bg.transform_draw=NULL;
-    if(engine.bg.trans){cpymo_backend_masktrans_free(engine.bg.trans);engine.bg.trans=NULL;}
-    cpymo_wait_reset(&engine.wait);
-    error_t err=cpymo_interpreter_goto_label(engine.interpreter,cpymo_str_pure("__garlic_boot_end"));
-    if(err!=CPYMO_ERR_SUCC)return err;
-    memset(&input,0,sizeof(input));engine.input=engine.prev_input=input;garlic_drain_buttons=true;
-    cpymo_engine_request_redraw(&engine);
-    log_cb(RETRO_LOG_INFO,"CPYMO_BOOT skip_logos by=A logo=%s\n",engine.bg.current_bg_name);
-    return CPYMO_ERR_SUCC;
-}
-
 void retro_run(void)
 {
     if (!garlic_game_loaded) return;
@@ -1508,8 +1482,6 @@ void retro_run(void)
 
     input_poll_cb();
     input_update();
-    error_t boot_skip_error=garlic_skip_boot_logos();
-    if(boot_skip_error!=CPYMO_ERR_SUCC)garlic_abort_error=boot_skip_error;
 
     if (garlic_exit_requested) {
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);

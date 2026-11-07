@@ -42,9 +42,6 @@ error_t cpymo_script_create_bootloader(cpymo_script **out, char *startscript)
         "#wait 300\n"
 		"#bg logo2\n"
         "#wait 300\n"
-#ifdef GARLIC_NO_FFMPEG
-        "#label __garlic_boot_end\n"
-#endif
 		"#change %s";
 
     cpymo_script *script = (cpymo_script *)malloc(sizeof(cpymo_script) + 1);

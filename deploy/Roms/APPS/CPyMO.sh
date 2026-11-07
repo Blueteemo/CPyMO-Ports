@@ -347,7 +347,7 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
 {
     echo '=== CPyMO RG35XX GarlicOS/uClibc launcher ==='
-    echo 'launcher_revision=0.24.5-output8'
+    echo 'launcher_revision=0.24.5-reading9'
     echo "time=$(date 2>/dev/null)"
     echo "script=$0"
     echo "launcher=$SELF"

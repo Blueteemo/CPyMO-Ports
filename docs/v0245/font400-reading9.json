@@ -1,0 +1,14 @@
+{
+  "source": {
+    "url": "https://raw.githubusercontent.com/adobe-fonts/source-han-sans/a4f7cf94edfb9d7ffbdfc4841de276358bd7e0f2/Variable/TTF/SourceHanSansSC-VF.ttf",
+    "git_commit": "a4f7cf94edfb9d7ffbdfc4841de276358bd7e0f2",
+    "git_blob": "c8496a24abfbf07768e4be1f4e6acc8bfab94e52",
+    "bytes": 36035552,
+    "sha256": "68f866374d8ff04d2103c5b2907f1cab2dbec91ac0fb6ad0b801c6db0c1faa80"
+  },
+  "weight": 400,
+  "font_sha256": "c62c808ffef2b9e02e8754a048f2bdf957f20658b92b0949921fa467b7022af0",
+  "bytes": 4287392,
+  "license": "SIL OFL 1.1; CPyMOReading400 renamed static subset, 7500 codepoints",
+  "unchanged_CJK_and_quotes_advance": true
+}
