@@ -145,9 +145,16 @@ void cpymo_textbox_draw(
     if (tb->lines == NULL || tb->chars_pool == NULL || tb->chars_x_pool == NULL) 
         return;
 
+    float body_raise=0;
+#ifdef GARLIC_NO_FFMPEG
+    /* Move only story dialogue (and its continuation marker), by about four
+       output pixels; keep pagination, authored boxes and saved state intact. */
+    if(drawtype==cpymo_backend_image_draw_type_text_say)
+        body_raise=(float)e->gameconfig.imagesize_h/120.0f;
+#endif
     if (tb->draw_cursor && e->say.msg_cursor && !e->say.auto_mode) {
         float x = tb->w + tb->x - tb->char_size;
-        float y = tb->lines[tb->max_lines - 1].y - tb->char_size;
+        float y = tb->lines[tb->max_lines - 1].y - tb->char_size - body_raise;
         float wh = tb->char_size;
 
         float draw_w = (float)e->say.msg_cursor_w;
@@ -180,7 +187,7 @@ void cpymo_textbox_draw(
             float x_pos = tb->chars_x_pool[char_index];
             cpymo_backend_text ch = tb->chars_pool[char_index];
             cpymo_backend_text_draw(
-                ch, x_pos, line->y, tb->col, tb->alpha, drawtype);
+                ch, x_pos, line->y-body_raise, tb->col, tb->alpha, drawtype);
         }
     }
 }

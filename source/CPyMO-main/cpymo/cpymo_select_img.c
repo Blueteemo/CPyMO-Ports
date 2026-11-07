@@ -575,6 +575,14 @@ void cpymo_select_img_fit_text_rows(cpymo_select_img *o,float minimum)
             s->h=(int)ceilf(fmaxf(minimum,bottom-top+4));}
     }
 }
+void cpymo_select_img_measure_text_rows(const cpymo_select_img *o,float *width,float *height)
+{
+    *width=0;*height=0;
+    for(size_t i=0;i<o->all_selections;i++){
+        const cpymo_select_img_selection *s=&o->selections[i];
+        if(s->enabled){*width=fmaxf(*width,(float)s->w);*height+=(float)s->h;}
+    }
+}
 #endif
 
 void cpymo_select_img_configuare_select_text_hint_pic(cpymo_engine * engine, cpymo_str hint)
