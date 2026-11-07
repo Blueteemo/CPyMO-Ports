@@ -81,6 +81,9 @@ void cpymo_select_img_configuare_end(
 	struct cpymo_engine *engine, int init_position);
 
 error_t cpymo_select_img_update(struct cpymo_engine *engine, cpymo_select_img *o, float dt);
+#ifdef GARLIC_NO_FFMPEG
+void cpymo_select_img_fit_text_rows(cpymo_select_img *,float);
+#endif
 void cpymo_select_img_draw(const cpymo_select_img *, int logical_screen_w, int logical_screen_h, bool gray_selected);
 
 static inline void cpymo_select_img_init(cpymo_select_img *select_img)

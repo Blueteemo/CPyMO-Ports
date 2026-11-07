@@ -315,7 +315,7 @@ prepare_session_config() {
     fi
     # A damaged/missing independent value must not resurrect positive stale
     # global gain. Neutral RA 0 dB is the fallback; CPyMO stays at its 50% gain.
-    (umask 077; printf 'audio_volume = "%s"\nconfig_save_on_exit = "false"\nauto_overrides_enable = "false"\n' "$VOLUME_DB" > "$SESSION_CONFIG") || return 1
+    (umask 077; printf 'audio_volume = "%s"\nconfig_save_on_exit = "false"\nauto_overrides_enable = "false"\nquit_on_close_content = "1"\n' "$VOLUME_DB" > "$SESSION_CONFIG") || return 1
     return 0
 }
 
@@ -343,7 +343,7 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
 {
     echo '=== CPyMO RG35XX GarlicOS/uClibc launcher ==='
-    echo 'launcher_revision=0.24.5-launchfix1'
+    echo 'launcher_revision=0.24.5-hwfix1'
     echo "time=$(date 2>/dev/null)"
     echo "script=$0"
     echo "launcher=$SELF"

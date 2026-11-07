@@ -27,6 +27,8 @@ float cpymo_backend_text_width(
     float single_character_size_in_logical_screen);
 
 #ifdef GARLIC_NO_FFMPEG
+float garlic_text_centered_baseline(cpymo_backend_text,float);
+void garlic_text_ink_bounds(cpymo_backend_text,float *,float *);
 float garlic_textbox_safe_height(cpymo_str,float,float,float);
 #endif
 

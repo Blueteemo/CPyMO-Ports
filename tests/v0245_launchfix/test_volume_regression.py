@@ -63,7 +63,7 @@ def case(name,content,want,mode='dash',exit_code=0,custom=False,missing_static=F
  assert not Path(got['session_path']).parent.exists(),got
  assert all(stamp(Path(p))==s for p,s in before.items()),name
  log=(app/'logs/launcher.log').read_text()
- assert 'launcher_revision=0.24.5-launchfix1' in log and f'ra_audio_volume_db={want:.6f}'in log,log
+ assert 'launcher_revision=0.24.5-hwfix1' in log and f'ra_audio_volume_db={want:.6f}'in log,log
  assert (app/'logs/launcher.log').stat().st_size<8192
  assert not (apps/'CPyMO.log').exists()
  assert not (t/'PWNED').exists()

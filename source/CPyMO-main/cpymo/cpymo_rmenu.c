@@ -317,6 +317,11 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
     RMENU_ITEM(9, "返回游戏列表", true);
 #endif
 
+#ifdef GARLIC_NO_FFMPEG
+    cpymo_select_img_fit_text_rows(&rmenu->menu,font_size+2);
+    rmenu->menu.draw_type=cpymo_backend_image_draw_type_ui_element;
+#endif
+
 	float xywh[4] = {
 		((float)e->gameconfig.imagesize_w - (float)rmenu->bg_w) / 2,
 		((float)e->gameconfig.imagesize_h - (float)rmenu->bg_h) / 2,

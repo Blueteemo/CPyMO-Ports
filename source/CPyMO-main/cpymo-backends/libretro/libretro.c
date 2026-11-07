@@ -491,23 +491,14 @@ static void audio_set_state(bool enabled)
 void retro_set_environment(retro_environment_t cb)
 {
     struct retro_log_callback log;
-#ifndef GARLIC_MP3_AUDIO
     struct retro_audio_callback audio = {
         .callback = audio_callback,
         .set_state = audio_set_state,
     };
-#endif
     environ_cb = cb;
     if (environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log))
         frontend_log = log.log;
 
-#ifdef GARLIC_MP3_AUDIO
-    /* This decoder owns mutable FILE/ring/FIR state without a thread mutex.
-     * Use the mandatory single-thread batch interface even when the frontend
-     * would accept optional asynchronous callbacks. No frontend config edit. */
-    use_audio_callback=false;
-    audio_enabled=true;
-#else
     if (environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK, &audio)) {
         use_audio_callback = true;
 #ifndef GARLIC_NO_FFMPEG
@@ -520,7 +511,6 @@ void retro_set_environment(retro_environment_t cb)
         }
 #endif
     }
-#endif
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb)
@@ -1117,7 +1107,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=86/100 movie=disabled\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/86/100 movie=disabled audio=rollback-v0244 ui=hardware-followup\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
@@ -1487,6 +1477,10 @@ void retro_run(void)
     if (redraw || garlic_first_frame) {
         garlic_prof_draws++;
         tick = garlic_micros();
+        /* A selector has no game background to repaint underneath its alpha
+           overlays. Rebuild it from black on every dirty frame. */
+        if (garlic_screen == GARLIC_SCREEN_MENU)
+            memset(soft_image.pixels,0,soft_image.line_stride*soft_image.h);
         cpymo_engine_draw(&engine);
         if (garlic_screen == GARLIC_SCREEN_MENU && garlic_library_footer)
             cpymo_backend_text_draw(garlic_library_footer, 16, 444,

@@ -103,6 +103,7 @@ typedef struct {
     size_t w, h;
     float baseline;
     float ink_center_from_baseline;
+    float ink_top_from_baseline,ink_bottom_from_baseline;
     uint16_t pad_x, pad_y;
     uint8_t px[0];
 } cpymo_backend_text_impl;
@@ -163,6 +164,8 @@ error_t cpymo_backend_text_create(
                 if (yy < ink_min) ink_min = yy;
                 if (yy > ink_max) ink_max = yy;
             }
+    o->ink_top_from_baseline=ink_min<=ink_max ? (float)ink_min-baseline-o->pad_y : 0;
+    o->ink_bottom_from_baseline=ink_min<=ink_max ? (float)ink_max+1-baseline-o->pad_y : 0;
     o->ink_center_from_baseline = ink_min <= ink_max ?
         ((float)ink_min + (float)ink_max) * 0.5f - baseline - o->pad_y : 0;
 
@@ -185,6 +188,17 @@ float garlic_text_centered_baseline(cpymo_backend_text text, float center_y)
         cpymo_backend_software_cur_context->logical_screen_h;
     return center_y - t->ink_center_from_baseline / scale;
 }
+
+#ifdef GARLIC_NO_FFMPEG
+void garlic_text_ink_bounds(cpymo_backend_text text,float *top,float *bottom)
+{
+    cpymo_backend_text_impl *t=text;
+    float scale=cpymo_backend_software_cur_context->text_layer ?
+        cpymo_backend_software_cur_context->text_scale :
+        (float)cpymo_backend_software_cur_context->render_target->h/cpymo_backend_software_cur_context->logical_screen_h;
+    *top=t->ink_top_from_baseline/scale;*bottom=t->ink_bottom_from_baseline/scale;
+}
+#endif
 
 void cpymo_backend_text_free(cpymo_backend_text t){
 #ifdef GARLIC_UI_DEBUG

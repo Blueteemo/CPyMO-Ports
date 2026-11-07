@@ -50,8 +50,12 @@ static void cpymo_game_selector_draw_node(const cpymo_engine *e, const void *nod
 	}
 
 	if (item->gametitle) {
+        float baseline=y+(float)e->gameconfig.fontsize;
+#ifdef GARLIC_NO_FFMPEG
+        baseline=garlic_text_centered_baseline(item->gametitle,y+(game_icon_size+8.0f)/2.0f);
+#endif
 		cpymo_backend_text_draw(
-			item->gametitle, 28 + game_icon_size, y + (float)e->gameconfig.fontsize, cpymo_color_white, 1.0f,
+			item->gametitle, 28 + game_icon_size, baseline, cpymo_color_white, 1.0f,
 			cpymo_backend_image_draw_type_ui_element);
 	}
 }

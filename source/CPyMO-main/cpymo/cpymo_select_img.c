@@ -6,6 +6,7 @@
 #include <memory.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 
 #ifdef ENABLE_TEXT_EXTRACT_ANDROID_ACCESSIBILITY
@@ -436,8 +437,22 @@ void cpymo_select_img_draw(const cpymo_select_img *o, int logical_screen_w, int 
 				const bool selected = o->current_selection == i;
 
 				float y_off = 0, x_off = 0;
+                bool fitted_highlight=false;
 
-				if (selected && o->sel_highlight) {
+
+#ifdef GARLIC_NO_FFMPEG
+                if(selected && o->draw_type==cpymo_backend_image_draw_type_ui_element){
+                    float top,bottom;garlic_text_ink_bounds(sel->or_text,&top,&bottom);
+                    float w=fmaxf((float)sel->w+6,o->sel_highlight ? (float)o->sel_highlight_w : 0);
+                    float h=fmaxf(bottom-top+4,o->sel_highlight ? (float)o->sel_highlight_h : 0);
+                    float rect[]={sel->x+((float)sel->w-w)/2,sel->y+(top+bottom-h)/2,w,h};
+                    if(o->sel_highlight)cpymo_backend_image_draw(rect[0],rect[1],rect[2],rect[3],
+                        o->sel_highlight,0,0,o->sel_highlight_w,o->sel_highlight_h,1.0f,o->draw_type);
+                    else cpymo_backend_image_fill_rects(rect,1,cpymo_color_white,0.3f,o->draw_type);
+                    fitted_highlight=true;
+                }
+#endif
+				if (selected && o->sel_highlight && !fitted_highlight) {
 					cpymo_backend_image_draw(
 						(float)sel->w / 2.0f - (float)o->sel_highlight_w / 2.0f + sel->x,
 						(float)sel->h / 2.0f - (float)o->sel_highlight_h / 2.0f + sel->y - sel->h,
@@ -449,7 +464,11 @@ void cpymo_select_img_draw(const cpymo_select_img *o, int logical_screen_w, int 
 						o->draw_type);
 				}
 
-				if (selected) {
+				if (selected
+#ifdef GARLIC_NO_FFMPEG
+                    && o->draw_type!=cpymo_backend_image_draw_type_ui_element
+#endif
+                ) {
 					y_off = -0.5f * logical_screen_h / 100.0f;
 					x_off = +0.5f * logical_screen_w / 100.0f;
 				}
@@ -547,6 +566,17 @@ error_t cpymo_select_img_configuare_select_text(
 	return CPYMO_ERR_SUCC;
 }
 
+#ifdef GARLIC_NO_FFMPEG
+void cpymo_select_img_fit_text_rows(cpymo_select_img *o,float minimum)
+{
+    for(size_t i=0;i<o->all_selections;i++){
+        cpymo_select_img_selection *s=&o->selections[i];
+        if(s->or_text){float top,bottom;garlic_text_ink_bounds(s->or_text,&top,&bottom);
+            s->h=(int)ceilf(fmaxf(minimum,bottom-top+4));}
+    }
+}
+#endif
+
 void cpymo_select_img_configuare_select_text_hint_pic(cpymo_engine * engine, cpymo_str hint)
 {
 	if (engine->gameconfig.hint == 0) return;
@@ -605,7 +635,11 @@ void cpymo_select_img_configuare_end_select_text(
 		cpymo_select_img_selection *s = &sel->selections[i];
 		s->text_color = col;
 		s->x = (box_w - s->w) / 2 + x1;
-		s->y = y + s->h;	// y is baseline.
+		s->y = y + s->h; // authored text choices retain their baseline layout.
+#ifdef GARLIC_NO_FFMPEG
+        if(sel->draw_type==cpymo_backend_image_draw_type_ui_element)
+            s->y=garlic_text_centered_baseline(s->or_text,y+(float)s->h/2);
+#endif
 		if(s->enabled) y += s->h;
 	}
 
