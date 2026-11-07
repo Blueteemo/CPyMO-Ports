@@ -18,13 +18,16 @@ static void inset_checks(cpymo_engine *e){
   }
   e->gameconfig.garlic_font_large=presets[k];CHECK(cpymo_say_reflow_textbox(e,fs)==0);
   /* Compare against the installed save11 coordinates at exactly the same width. */
-  float centered=tb->x,previous=authored_left+fs*.375f-h/320.0f;size_t count=tb->chars_pool_size;cpymo_str remaining=tb->remain_text;
-  float *xs=malloc(count*sizeof(float));CHECK(xs);memcpy(xs,tb->chars_x_pool,count*sizeof(float));
-  uint16_t *after=NULL;if(dim==1){inset_frame(e,"layout12_centered.png");after=malloc(640*480*2);CHECK(after);memcpy(after,garlic_rgb565_frame,640*480*2);}
-  tb->x=previous;CHECK(cpymo_textbox_reflow(tb,fs)==0);CHECK(tb->chars_pool_size==count && tb->remain_text.begin==remaining.begin && tb->remain_text.len==remaining.len);
-  for(size_t i=0;i<count;i++)CHECK(fabsf((xs[i]-tb->chars_x_pool[i])-(centered-previous))<.005f);free(xs);
-  if(after){inset_frame(e,"layout12_previous_geometry.png");unsigned name_rows=(unsigned)floorf((tb->y-(float)h/120)*soft_context.text_scale+soft_context.text_off_y);CHECK(name_rows<=480);CHECK(memcmp(after,garlic_rgb565_frame,name_rows*640*2)==0);free(after);}
-  tb->x=centered;CHECK(cpymo_textbox_reflow(tb,fs)==0);
+  float centered=tb->x,previous=authored_left+fs*.375f-h/320.0f;
+  cpymo_textbox reference;CHECK(cpymo_textbox_init(&reference,previous,tb->y,tb->w,tb->h,fs,tb->col,tb->alpha,tb->page_text,NULL)==0);cpymo_textbox_finalize(&reference);
+  CHECK(reference.chars_pool_size==tb->chars_pool_size && reference.remain_text.begin==tb->remain_text.begin && reference.remain_text.len==tb->remain_text.len);
+  for(size_t i=0;i<tb->chars_pool_size;i++)CHECK(fabsf((tb->chars_x_pool[i]-reference.chars_x_pool[i])-(centered-previous))<.005f);
+  if(dim==1){
+   inset_frame(e,"layout12_centered.png");uint16_t *after=malloc(640*480*2);CHECK(after);memcpy(after,garlic_rgb565_frame,640*480*2);
+   cpymo_textbox centered_tb=*tb;*tb=reference;inset_frame(e,"layout12_previous_geometry.png");*tb=centered_tb;
+   unsigned name_rows=(unsigned)floorf((tb->y-(float)h/120)*soft_context.text_scale+soft_context.text_off_y);CHECK(name_rows<=480);CHECK(memcmp(after,garlic_rgb565_frame,name_rows*640*2)==0);free(after);
+  }
+  cpymo_textbox_free(&reference,NULL);
   size_t consumed=0;unsigned pages=0;
   do{
    size_t before=tb->remain_text.len;cpymo_textbox_finalize(tb);size_t taken=before-tb->remain_text.len;if(!pages)taken=tb->page_text.len-tb->remain_text.len;CHECK(taken>0);consumed+=taken;pages++;
