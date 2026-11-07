@@ -415,8 +415,8 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 		text_speed_inc_dec_btn);
 
 #ifdef GARLIC_NO_FFMPEG
-    INIT_ITEM(ITEM_FONT_SIZE, l->config_fontsize, 0, 1,
-        e->gameconfig.garlic_font_large == 2 ? 0 : 1, true);
+    INIT_ITEM(ITEM_FONT_SIZE, l->config_fontsize, 0, 2,
+        e->gameconfig.garlic_font_large == 2 ? 0 : e->gameconfig.garlic_font_large == 1 ? 2 : 1, true);
 #else
 	INIT_ITEM(
 		ITEM_FONT_SIZE, 
@@ -491,8 +491,8 @@ static error_t cpymo_config_ui_set_value(
 	case ITEM_FONT_SIZE:
 #ifdef GARLIC_NO_FFMPEG
         val_str = (unsigned char)l->config_fontsize[0] >= 128 ?
-            (val == 0 ? "小" : "默认") :
-            (val == 0 ? "Small" : "Default");
+            (val == 0 ? "小" : val == 1 ? "默认" : "大") :
+            (val == 0 ? "Small" : val == 1 ? "Default" : "Large");
 #else
         sprintf(val_str_buf, "%d", val);
 #endif
@@ -550,7 +550,7 @@ JUST_REFRESH:
 	case ITEM_FONT_SIZE:
 		#ifdef GARLIC_NO_FFMPEG
         uint8_t previous = e->gameconfig.garlic_font_large;
-        e->gameconfig.garlic_font_large = val == 0 ? 2 : 0;
+        e->gameconfig.garlic_font_large = val == 0 ? 2 : val == 2 ? 1 : 0;
         if (e->say.textbox_usable) {
             error_t reflow_err = cpymo_textbox_reflow(&e->say.textbox,
                 cpymo_gameconfig_font_size(&e->gameconfig));

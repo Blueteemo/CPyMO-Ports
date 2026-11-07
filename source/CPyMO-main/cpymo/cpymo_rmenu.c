@@ -46,7 +46,7 @@ typedef struct {
 	float bg_zoom_out;
 
 #ifdef GARLIC_NO_FFMPEG
-    float panel[4],padding,clock_height,clock_gap,clock_font_size,clock_poll;
+    float panel[4],padding,header_height,clock_height,clock_gap,clock_font_size,clock_poll;
     cpymo_backend_text clock_text;
     char clock_label[6];
 #endif
@@ -76,14 +76,21 @@ static void garlic_rmenu_layout(cpymo_engine *e,cpymo_rmenu *r)
     float top,bottom;garlic_text_ink_bounds(r->clock_text,&top,&bottom);
     r->clock_height=bottom-top;
     float available=sh-2*margin;
-    float required=height+r->clock_height+r->clock_gap+2*r->padding;
+    /* The stock SYSTEM skin uses roughly the upper 15% for its title bar.
+       Keep all choices below it, including Auto, instead of treating the
+       entire bitmap as the selectable content rectangle. */
+    float required=fmaxf((height+r->clock_gap+r->padding)/.84f,
+        height+r->clock_gap+r->clock_height+3*r->padding);
     if(required>available){
-        r->padding=fmaxf(0,(available-height-r->clock_height-r->clock_gap)/2);
-        required=height+r->clock_height+r->clock_gap+2*r->padding;
+        cpymo_select_img_fit_text_rows(&r->menu,cpymo_gameconfig_font_size(&e->gameconfig),0);
+        cpymo_select_img_measure_text_rows(&r->menu,&width,&height);
+        required=fmaxf((height+r->clock_gap+r->padding)/.84f,
+            height+r->clock_gap+r->clock_height+3*r->padding);
     }
     float scale=fmaxf(1,required/(float)r->bg_h);
     r->panel[2]=fminf(sw-2*margin,fmaxf(width+2*r->padding,r->bg_w*scale));
     r->panel[3]=fminf(available,r->bg_h*scale);
+    r->header_height=fmaxf(r->panel[3]*.16f,r->clock_height+2*r->padding);
     r->panel[0]=(sw-r->panel[2])/2;r->panel[1]=(sh-r->panel[3])/2;
 }
 #endif
@@ -183,7 +190,7 @@ static void cpymo_rmenu_draw(const cpymo_engine *e, const void *ui_data)
 
 #ifdef GARLIC_NO_FFMPEG
     if(r->clock_text)cpymo_backend_text_draw(r->clock_text,r->panel[0]+r->padding,
-        garlic_text_centered_baseline(r->clock_text,r->panel[1]+r->padding+r->clock_height/2),
+        garlic_text_centered_baseline(r->clock_text,r->panel[1]+r->header_height/2),
         cpymo_color_white,1,cpymo_backend_image_draw_type_ui_element);
 #endif
 	cpymo_select_img_draw(&r->menu, e->gameconfig.imagesize_w, e->gameconfig.imagesize_h, false);
@@ -296,7 +303,7 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
 
 #ifdef GARLIC_NO_FFMPEG
     rmenu->clock_text=NULL;rmenu->clock_label[0]=0;rmenu->clock_poll=0;
-    rmenu->clock_font_size=e->gameconfig.imagesize_h*.035f;
+    rmenu->clock_font_size=e->gameconfig.imagesize_h*.045f;
 #endif
 	rmenu->alive = true;
 
@@ -379,7 +386,7 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
 #endif
 
 #ifdef GARLIC_NO_FFMPEG
-    cpymo_select_img_fit_text_rows(&rmenu->menu,font_size+2);
+    cpymo_select_img_fit_text_rows(&rmenu->menu,font_size,e->gameconfig.imagesize_h/240.0f);
     rmenu->menu.draw_type=cpymo_backend_image_draw_type_ui_element;
     garlic_rmenu_clock(e,rmenu,time(NULL));
     if(!rmenu->clock_text){cpymo_ui_exit(e);return CPYMO_ERR_OUT_OF_MEM;}
@@ -395,7 +402,7 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
 
 #ifdef GARLIC_NO_FFMPEG
     xywh[0]=rmenu->panel[0]+rmenu->padding;
-    xywh[1]=rmenu->panel[1]+rmenu->padding+rmenu->clock_height+rmenu->clock_gap;
+    xywh[1]=rmenu->panel[1]+rmenu->header_height+rmenu->clock_gap;
     xywh[2]=rmenu->panel[2]-2*rmenu->padding;
     xywh[3]=rmenu->panel[1]+rmenu->panel[3]-rmenu->padding-xywh[1];
 #endif
