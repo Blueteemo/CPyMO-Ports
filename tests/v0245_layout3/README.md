@@ -6,4 +6,4 @@
 
 transition.py保留逐帧首场景衔接与旧缺字反例；小字号故事画面与上版完全一致的旧断言已移除，本轮主动上移正文，改由C测试验证精确位移。继续运行v0245_hw/integration.py和v0245_ui2的suite/extended/actual_games，合计80场景；不重复音频矩阵，因为音频源码/回调和启动器均无改动。
 
-字体仅评估，不改卡上字体：preview.c用同一生产渲染器输出640×480故事和START菜单、两档字号，时间12:34只在预览进程内固定。prepare_font.py从官方完整字体按现有cmap裁子集，并按unitsPerEm比例对齐垂直度量，仅供等字号对比；不将另一字体的GSUB/GPOS复制到候选。实际覆盖缺失、大小、来源hash及OFL见工程证据。源码下载URLs在font_sources.json。候选未写入部署目录，最终选择还需用户比较与真机阅读。
+字体经过实际预览后选择Regular；其他候选仅评估：preview.c用同一生产渲染器输出640×480故事和START菜单、两档字号，时间12:34只在预览进程内固定。prepare_font.py从官方完整字体按现有cmap裁子集，并按unitsPerEm比例对齐垂直度量，仅供等字号对比；不将另一字体的GSUB/GPOS复制到候选。实际覆盖缺失、大小、来源hash及OFL见工程证据。源码下载URLs在font_sources.json。最终Regular字库写入部署目录，7500码位与旧字体相同；替换前仍须完成实际stb位图、布局及旧档回归，其他候选不安装。

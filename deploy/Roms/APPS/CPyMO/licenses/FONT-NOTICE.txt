@@ -1,18 +1,16 @@
-CPyMO CJK Medium — RG35XX v0.24.4 coverage subset
+CPyMO CJK Regular — RG35XX v0.24.5
 
-Base face: Adobe Source Han Sans SC Medium 2.005R
-Official source: https://github.com/adobe-fonts/source-han-sans/releases/tag/2.005R
-Original file: OTF/SimplifiedChinese/SourceHanSansSC-Medium.otf
-Original Git blob SHA-1: 304b3e6cc2eb1b0c694d53fba21107fe83116cea
-Original SHA-256: 1df61d31687d04fd2f928a3bb6ca6cd61f0e988cc267cf317f32406edbb49f70
+Base face: Adobe Source Han Sans SC Regular 2.005R
+Official source: https://raw.githubusercontent.com/adobe-fonts/source-han-sans/a4f7cf94edfb9d7ffbdfc4841de276358bd7e0f2/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf
+Original Git blob SHA-1: 8113ad53da18b6a08b133c6c460ae1d818a0f865
+Original SHA-256: f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256
 
-Derivative modifications: Unicode coverage subset for CPyMO, preservation of
-the previously validated handheld font's vertical metrics and layout policy,
-and derivative font-family/PostScript names changed to CPyMO CJK Medium /
-CPyMOCJK-Medium to respect the reserved font name.
+Derivative modifications: 7,500-codepoint coverage subset, matching the previous
+Medium font cmap exactly; vertical em metrics normalized to the validated
+handheld metrics; native Regular outlines/advances/kerning retained.
+Family/PostScript/CFF names changed to CPyMO CJK Regular / CPyMOCJK-Regular
+to respect reserved names. The weight intentionally changes Medium to Regular.
 
-7,200 codepoints, including every codepoint in the prior 7,170-codepoint font.
-The original glyph bitmaps/advances and ASCII kerning were compared using
-CPyMO's actual stb_truetype rasterizer; outlines and weight are unchanged.
-This font remains licensed under SIL OFL 1.1. See OFL-SourceHanSans.txt.
-Build script: tools/build_rg35xx_font.py in the matching source project.
+Licensed under SIL OFL 1.1. See OFL-SourceHanSans.txt.
+Rebuild: tools/build_rg35xx_regular_font.py in the matching source project,
+using the original Regular OTF and the pre-update Medium font as reference.
