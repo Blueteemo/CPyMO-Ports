@@ -353,7 +353,7 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
         if (w > ui->value_column_w) ui->value_column_w = w;
 #ifdef GARLIC_NO_FFMPEG
         const char *font = (unsigned char)l->config_fontsize[0] >= 128 ?
-            (i ? "大" : "小") : (i ? "Large" : "Small");
+            (i ? "默认" : "小") : (i ? "Default" : "Small");
         w = cpymo_backend_text_width(cpymo_str_pure(font), ui->font_size);
         if (w > ui->value_column_w) ui->value_column_w = w;
 #endif
@@ -415,8 +415,8 @@ static void cpymo_config_ui_refresh_items(cpymo_engine *e)
 		text_speed_inc_dec_btn);
 
 #ifdef GARLIC_NO_FFMPEG
-    INIT_ITEM(ITEM_FONT_SIZE, l->config_fontsize, 0, 2,
-        e->gameconfig.garlic_font_large == 2 ? 0 : e->gameconfig.garlic_font_large == 1 ? 2 : 1, true);
+    INIT_ITEM(ITEM_FONT_SIZE, l->config_fontsize, 0, 1,
+        e->gameconfig.garlic_font_large == 2 ? 0 : 1, true);
 #else
 	INIT_ITEM(
 		ITEM_FONT_SIZE, 
@@ -491,8 +491,8 @@ static error_t cpymo_config_ui_set_value(
 	case ITEM_FONT_SIZE:
 #ifdef GARLIC_NO_FFMPEG
         val_str = (unsigned char)l->config_fontsize[0] >= 128 ?
-            (val == 0 ? "小" : val == 1 ? "默认" : "大") :
-            (val == 0 ? "Small" : val == 1 ? "Default" : "Large");
+            (val == 0 ? "小" : "默认") :
+            (val == 0 ? "Small" : "Default");
 #else
         sprintf(val_str_buf, "%d", val);
 #endif
@@ -526,9 +526,6 @@ static error_t cpymo_config_ui_set_value(
 		&item->show_value, 
 		&item->show_value_width, 
         cpymo_str_pure(val_str),
-#ifdef GARLIC_NO_FFMPEG
-        item_index == ITEM_FONT_SIZE ? ui->font_size*(val == 0 ? 0.72f : val == 1 ? 0.86f : 1.0f) :
-#endif
         ui->font_size);
 
 	if (err != CPYMO_ERR_SUCC)
@@ -553,7 +550,7 @@ JUST_REFRESH:
 	case ITEM_FONT_SIZE:
 		#ifdef GARLIC_NO_FFMPEG
         uint8_t previous = e->gameconfig.garlic_font_large;
-        e->gameconfig.garlic_font_large = val == 0 ? 2 : val == 2 ? 1 : 0;
+        e->gameconfig.garlic_font_large = val == 0 ? 2 : 0;
         if (e->say.textbox_usable) {
             error_t reflow_err = cpymo_textbox_reflow(&e->say.textbox,
                 cpymo_gameconfig_font_size(&e->gameconfig));

@@ -227,6 +227,12 @@ static void cpymo_backend_text_draw_internal(cpymo_color col, float x, float y, 
         y *= window_size_h;
     }
 
+#ifdef GARLIC_NO_FFMPEG
+    if (alpha>0 && t->ink_bottom_from_baseline>t->ink_top_from_baseline &&
+        x<window_size_w && y<window_size_h && x+t->w>0 && y+t->h>0)
+        cpymo_backend_software_cur_context->frame_painted=true;
+#endif
+
     /* (float)k/255.0f, read from the shared table instead of divided per
      * pixel: bit-identical, and the whole text box is redrawn on most frames
      * of a dialogue. */

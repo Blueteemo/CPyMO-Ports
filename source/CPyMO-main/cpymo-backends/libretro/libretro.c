@@ -68,6 +68,8 @@ static uint16_t                      *garlic_rgb565_frame = NULL;
 static uint32_t                      *garlic_text_layer = NULL;
 static void garlic_text_layer_configure(void);
 static bool                           garlic_first_frame = false;
+/* Keep the complete library output while the boot script has not drawn yet. */
+static bool                           garlic_waiting_for_game_frame = false;
 static bool                           garlic_pixel_format_supported = false;
 static bool                           garlic_engine_ready = false;
 static bool                           garlic_game_loaded = false;
@@ -1098,7 +1100,16 @@ static error_t garlic_start_queued_game(void)
         gamedir, (int)err, (unsigned long long)(garlic_micros() - begin),
         (unsigned long long)(engine_end - engine_begin),
         (unsigned long long)(garlic_micros() - engine_end));
-    if (err == CPYMO_ERR_SUCC) garlic_prof_reset();
+    if (err == CPYMO_ERR_SUCC) {
+        /* The output RGB565 buffer still contains the complete library,
+           including its composited text. Build the game on a clean canvas
+           offscreen, and publish only after it submits its first draw. */
+        memset(soft_image.pixels,0,soft_image.line_stride*soft_image.h);
+        if (garlic_text_layer) memset(garlic_text_layer,0,
+            (size_t)GARLIC_OUTPUT_WIDTH*GARLIC_OUTPUT_HEIGHT*sizeof(uint32_t));
+        garlic_waiting_for_game_frame=true;
+        garlic_prof_reset();
+    }
     return err;
 }
 
@@ -1107,7 +1118,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/86/100 movie=disabled audio=rollback-v0244 ui=hardware-followup\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80 movie=disabled audio=rollback-v0244 ui=font-transition2\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
@@ -1481,6 +1492,7 @@ void retro_run(void)
            overlays. Rebuild it from black on every dirty frame. */
         if (garlic_screen == GARLIC_SCREEN_MENU)
             memset(soft_image.pixels,0,soft_image.line_stride*soft_image.h);
+        soft_context.frame_painted=false;
         cpymo_engine_draw(&engine);
         if (garlic_screen == GARLIC_SCREEN_MENU && garlic_library_footer)
             cpymo_backend_text_draw(garlic_library_footer, 16, 444,
@@ -1488,16 +1500,22 @@ void retro_run(void)
         garlic_toast_draw();
         uint64_t after_draw = garlic_micros();
         garlic_prof_draw_us += after_draw - tick;
-        if (!garlic_blit_rgb565_quality(garlic_rgb565_frame, GARLIC_OUTPUT_WIDTH * 2,
-            GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT, soft_image.pixels,
-            soft_image.line_stride, soft_image.w, soft_image.h)) {
-            log_cb(RETRO_LOG_ERROR, "GarlicOS: frame conversion failed\n");
-            environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
-            return;
+        if (!garlic_waiting_for_game_frame || soft_context.frame_painted) {
+            if (garlic_waiting_for_game_frame) {
+                garlic_waiting_for_game_frame=false;
+                log_cb(RETRO_LOG_INFO,"CPYMO_TRANSITION first_game_frame ready=1\n");
+            }
+            if (!garlic_blit_rgb565_quality(garlic_rgb565_frame, GARLIC_OUTPUT_WIDTH * 2,
+                GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT, soft_image.pixels,
+                soft_image.line_stride, soft_image.w, soft_image.h)) {
+                log_cb(RETRO_LOG_ERROR, "GarlicOS: frame conversion failed\n");
+                environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
+                return;
+            }
+            garlic_text_layer_composite(garlic_rgb565_frame);
+            garlic_prof_convert_us += garlic_micros() - after_draw;
+            garlic_first_frame = false;
         }
-        garlic_text_layer_composite(garlic_rgb565_frame);
-        garlic_prof_convert_us += garlic_micros() - after_draw;
-        garlic_first_frame = false;
     }
     garlic_prof_frames++;
     if (garlic_prof_frames >= 180) garlic_prof_report();
@@ -1570,6 +1588,7 @@ void retro_unload_game(void)
     free(garlic_rgb565_frame);
     garlic_rgb565_frame = NULL;
     garlic_first_frame = false;
+    garlic_waiting_for_game_frame = false;
     garlic_game_loaded = false;
     garlic_screen = GARLIC_SCREEN_NONE;
     if (soft_image.pixels) {

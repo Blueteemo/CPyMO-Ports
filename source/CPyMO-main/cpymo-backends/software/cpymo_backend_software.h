@@ -50,6 +50,9 @@ typedef struct {
     float text_scale;             /* canvas -> output pixels */
     int text_off_x, text_off_y;   /* letterbox origin */
     int text_dirty_y0, text_dirty_y1;
+#ifdef GARLIC_NO_FFMPEG
+    bool frame_painted; /* a clipped, non-zero-opacity draw was submitted */
+#endif
 } cpymo_backend_software_context;
 
 void cpymo_backend_software_set_context(

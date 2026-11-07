@@ -324,6 +324,7 @@ void cpymo_backend_image_draw(
 #ifdef GARLIC_NO_FFMPEG
     const unsigned global_q=(unsigned)(cpymo_utils_clampf(alpha,0,1)*65536.0f);
     if (!global_q) { lookup_free(&lk); return; }
+    cpymo_backend_software_cur_context->frame_painted=true;
 #endif
     for (int draw_y = cy1; draw_y < cy2; ++draw_y) {
         const uint8_t *tex_row =
@@ -444,6 +445,9 @@ void cpymo_backend_image_fill_rects(
         if (y2 > render_target_h) y2 = render_target_h;
         if (x1 >= x2 || y1 >= y2) continue;
 
+#ifdef GARLIC_NO_FFMPEG
+        cpymo_backend_software_cur_context->frame_painted=true;
+#endif
         const int span = x2 - x1;
 
         /* alpha == 1 writes the clamped colour itself: the general expression
