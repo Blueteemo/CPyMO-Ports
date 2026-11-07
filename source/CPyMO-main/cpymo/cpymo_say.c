@@ -67,6 +67,7 @@ void cpymo_say_init(cpymo_say *out)
 	out->msg_cursor = NULL;
 #ifdef GARLIC_NO_FFMPEG
     for(unsigned i=0;i<4;i++)out->msg_cursor_ink[i]=0;
+    out->name_plate_min_width=0;
 #endif
 	out->active = false;
 	out->lazy_init = false;
@@ -118,7 +119,7 @@ void cpymo_say_draw(const struct cpymo_engine *e)
 #ifdef GARLIC_NO_FFMPEG
         /* Keep the speaker anchor and font; expand the plate for actual ink width. */
         if(e->say.name)namebox_w=fminf(e->gameconfig.imagesize_w-namebox_x-fontsize*.5f,
-            fmaxf(namebox_w,fmaxf(5*fontsize,e->say.name_width+fontsize)));
+            fmaxf(namebox_w,fmaxf(e->say.name_plate_min_width,e->say.name_width+fontsize)));
 #endif
 
 		const cpymo_color gray = { 127, 127, 127 };
@@ -528,6 +529,10 @@ error_t cpymo_say_start(cpymo_engine *e, cpymo_str name, cpymo_str text)
 
 	// Create name box
 	cpymo_say *say = &e->say;
+#ifdef GARLIC_NO_FFMPEG
+    /* Measure four full-width characters once; retain raster rounding slack. */
+    say->name_plate_min_width=cpymo_backend_text_width(cpymo_str_pure("姓名姓名"),fontsize)+fontsize;
+#endif
 	RESET_NAME(say);
 
 	cpymo_str_trim(&name);

@@ -12,7 +12,8 @@ typedef struct {
 	int msgbox_w, msgbox_h, namebox_w, namebox_h, msg_cursor_w, msg_cursor_h;
 
 #ifdef GARLIC_NO_FFMPEG
-    float msg_cursor_ink[4]; /* cached alpha bounds in original source pixels */
+    float msg_cursor_ink[4];
+    float name_plate_min_width; /* cached alpha bounds in original source pixels */
 #endif
 	cpymo_textbox textbox;
 	bool textbox_usable;

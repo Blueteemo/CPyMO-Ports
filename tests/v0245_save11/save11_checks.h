@@ -27,6 +27,7 @@ static void save11_checks(const char *font){
   memset(soft_image.pixels,0,soft_image.line_stride*soft_image.h);
   memset(garlic_text_layer,0,640*480*4);soft_context.text_dirty_y0=480;soft_context.text_dirty_y1=0;cpymo_say_draw(&engine);
   CHECK(name_calls==3 && cursor_calls);
+  printf("NAME_GEOMETRY canvas=%ux%u preset=%u chars=%u plate=%.6f name=%.6f font=%.6f\n",w,h,preset,n+3,name_plate[2],engine.say.name_width,cpymo_gameconfig_font_size(&engine.gameconfig));fflush(stdout);
   if(!n)common_width[dim][preset]=name_plate[2];
   if(n==1)CHECK(fabsf(name_plate[2]-common_width[dim][preset])<.001f);float fs=cpymo_gameconfig_font_size(&engine.gameconfig);
   CHECK(name_plate[2]>=engine.say.name_width+fs-.001f);CHECK(name_plate[0]>=0 && name_plate[0]+name_plate[2]<=w);
