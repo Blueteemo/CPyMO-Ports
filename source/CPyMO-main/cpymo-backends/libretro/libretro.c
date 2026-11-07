@@ -32,6 +32,7 @@
 #include <libswscale/swscale.h>
 #endif
 #include "../garlicos/garlic_adapter.h"
+#include "../garlicos/garlic_confirm.h"
 #include "../garlicos/garlic_paths.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "../../stb/stb_image.h"
@@ -200,6 +201,7 @@ static void garlic_toast_clear(void);
 static float             garlic_toast_left;
 static float             garlic_toast_w, garlic_toast_h;
 static uint32_t          garlic_prev_buttons;
+static garlic_confirm_key garlic_save_confirm, garlic_load_confirm;
 static bool              garlic_drain_buttons;
 #ifdef GARLIC_UI_DEBUG
 static unsigned          polls_dbg;
@@ -1151,7 +1153,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/74 movie=disabled audio=phase-headroom7 ui=reading-layout9\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/74 movie=disabled audio=phase-headroom7 ui=dialogue-save11\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
@@ -1162,6 +1164,7 @@ bool retro_load_game(const struct retro_game_info *game)
 #endif
     garlic_write_audio_report();
     garlic_prev_buttons = 0;
+    garlic_save_confirm=(garlic_confirm_key){0};garlic_load_confirm=(garlic_confirm_key){0};
     garlic_drain_buttons = false;
     error_t err;
     if (garlic_game_loaded || garlic_engine_ready)
@@ -1431,8 +1434,14 @@ static void input_update(void)
     if (garlic_screen == GARLIC_SCREEN_MENU && !garlic_drain_buttons &&
         (pressed & GARLIC_BUTTON_B))
         garlic_exit_requested = true;
-    a.quick_save = a.quick_save && (pressed & GARLIC_BUTTON_R2);
-    a.quick_load = a.quick_load && (pressed & GARLIC_BUTTON_L2);
+    bool story_saveable=garlic_screen==GARLIC_SCREEN_GAME && engine.say.active &&
+        !cpymo_ui_enabled(&engine) && !picking && !engine.say.hide_window && !a.hide_window;
+    uint64_t confirm_now=garlic_micros();
+    a.quick_save=garlic_confirm_update(&garlic_save_confirm,(b&GARLIC_BUTTON_R2)!=0,
+        story_saveable && (b==0 || b==GARLIC_BUTTON_R2),confirm_now);
+    a.quick_load=garlic_confirm_update(&garlic_load_confirm,(b&GARLIC_BUTTON_L2)!=0,
+        story_saveable && (b==0 || b==GARLIC_BUTTON_L2),confirm_now);
+    bool quick_confirmed=a.quick_save || a.quick_load;
     a.auto_play = a.auto_play && (pressed & GARLIC_BUTTON_Y);
     a.settings = a.settings && (pressed & GARLIC_BUTTON_SELECT);
     /* Opposing shoulders/chords do nothing. Other held buttons cannot turn a
@@ -1442,7 +1451,7 @@ static void input_update(void)
     if (action && (action & (action - 1)))
         a.quick_save = a.quick_load = a.auto_play = a.settings = false;
     garlic_prev_buttons = b;
-    if (!garlic_drain_buttons) garlic_oneshot(&a);
+    if (!garlic_drain_buttons || quick_confirmed) garlic_oneshot(&a);
     if (action) garlic_drain_buttons = true;
     if (!b) garlic_drain_buttons = false;
     if (garlic_drain_buttons) {

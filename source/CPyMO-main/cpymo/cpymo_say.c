@@ -5,6 +5,7 @@
 #include "cpymo_save.h"
 #include <stdlib.h>
 #include <assert.h>
+#include <math.h>
 
 #ifdef GARLIC_NO_FFMPEG
 /* Keep read-state distinction and the script's RGB colour, with less dimming
@@ -53,6 +54,9 @@ static void cpymo_say_lazy_init(cpymo_say *out, cpymo_assetloader *loader)
 			true);
 
 		if (err != CPYMO_ERR_SUCC) out->msg_cursor = NULL;
+#ifdef GARLIC_NO_FFMPEG
+        if(out->msg_cursor)garlic_image_ink_bounds(out->msg_cursor,out->msg_cursor_ink);
+#endif
 	}
 }
 
@@ -61,6 +65,9 @@ void cpymo_say_init(cpymo_say *out)
 	out->msgbox = NULL;
 	out->namebox = NULL;
 	out->msg_cursor = NULL;
+#ifdef GARLIC_NO_FFMPEG
+    for(unsigned i=0;i<4;i++)out->msg_cursor_ink[i]=0;
+#endif
 	out->active = false;
 	out->lazy_init = false;
 	out->textbox_usable = false;
@@ -108,6 +115,11 @@ void cpymo_say_draw(const struct cpymo_engine *e)
 
 		namebox_x += offx;
 		namebox_y -= offy;
+#ifdef GARLIC_NO_FFMPEG
+        /* Keep the speaker anchor and font; expand the plate for actual ink width. */
+        if(e->say.name)namebox_w=fminf(e->gameconfig.imagesize_w-namebox_x-fontsize*.5f,
+            fmaxf(namebox_w,fmaxf(5*fontsize,e->say.name_width+fontsize)));
+#endif
 
 		const cpymo_color gray = { 127, 127, 127 };
 
@@ -153,6 +165,9 @@ void cpymo_say_draw(const struct cpymo_engine *e)
 					break;
 				case 2:	// right
 					name_x += namebox_w - (float)e->say.name_width;
+#ifdef GARLIC_NO_FFMPEG
+                    name_x -= fontsize*.5f;
+#endif
 					break;
 			}
 
@@ -166,10 +181,22 @@ void cpymo_say_draw(const struct cpymo_engine *e)
 					e->say.namebox, 0, 0, e->say.namebox_w, e->say.namebox_h, 1.0f,
 					cpymo_backend_image_draw_type_text_say_textbox);
 #else
-				cpymo_backend_image_draw(
-					namebox_x, namebox_y, namebox_w, namebox_h,
-					e->say.namebox, 0, 0, e->say.namebox_w, e->say.namebox_h, 1.0f,
-					cpymo_backend_image_draw_type_text_say_textbox);
+#ifdef GARLIC_NO_FFMPEG
+                /* Preserve both rounded ends; stretch only the central strip. */
+                int cap=e->say.namebox_w/3;if(cap>12)cap=12;
+                if(cap>0 && e->say.namebox_h>0){
+                    float side=fminf(namebox_w*.5f,cap*namebox_h/e->say.namebox_h);
+                    float x2=namebox_x+side,x3=namebox_x+namebox_w-side;
+                    cpymo_backend_image_draw(namebox_x,namebox_y,side,namebox_h,
+                        e->say.namebox,0,0,cap,e->say.namebox_h,1.0f,cpymo_backend_image_draw_type_text_say_textbox);
+                    cpymo_backend_image_draw(x2,namebox_y,x3-x2,namebox_h,
+                        e->say.namebox,cap,0,e->say.namebox_w-2*cap,e->say.namebox_h,1.0f,cpymo_backend_image_draw_type_text_say_textbox);
+                    cpymo_backend_image_draw(x3,namebox_y,namebox_x+namebox_w-x3,namebox_h,
+                        e->say.namebox,e->say.namebox_w-cap,0,cap,e->say.namebox_h,1.0f,cpymo_backend_image_draw_type_text_say_textbox);
+                }else
+#endif
+                cpymo_backend_image_draw(namebox_x,namebox_y,namebox_w,namebox_h,
+                    e->say.namebox,0,0,e->say.namebox_w,e->say.namebox_h,1.0f,cpymo_backend_image_draw_type_text_say_textbox);
 #endif
 			}
 			else {
@@ -529,8 +556,8 @@ error_t cpymo_say_start(cpymo_engine *e, cpymo_str name, cpymo_str text)
 #endif
 
 #ifdef GARLIC_NO_FFMPEG
-    /* Give dialogue a 3/8-em inset while preserving its authored right edge. */
-    x += fontsize * 0.375f;
+    /* Translate both dialogue edges left by about 1.5 output pixels; retain width. */
+    x += fontsize * 0.375f - (float)e->gameconfig.imagesize_h/320.0f;
     w -= fontsize * 0.375f;
 #endif
 

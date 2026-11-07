@@ -110,6 +110,22 @@ error_t cpymo_backend_image_load_with_mask(
     return err;
 }
 
+#ifdef GARLIC_NO_FFMPEG
+void garlic_image_ink_bounds(cpymo_backend_image image,float bounds[4])
+{
+    cpymo_backend_software_image *p=image;
+    size_t x0=p->w,y0=p->h,x1=0,y1=0;
+    for(size_t y=0;y<p->h;y++)for(size_t x=0;x<p->w;x++)
+        if(!p->has_alpha_channel || p->pixels[y*p->line_stride+x*p->pixel_stride+p->a_offset]){
+            if(x<x0)x0=x;if(y<y0)y0=y;if(x+1>x1)x1=x+1;if(y+1>y1)y1=y+1;
+        }
+    if(x1<=x0 || y1<=y0){x0=y0=0;x1=p->w;y1=p->h;}
+    float sx=(float)(p->source_w?p->source_w:p->w)/p->w;
+    float sy=(float)(p->source_h?p->source_h:p->h)/p->h;
+    bounds[0]=x0*sx;bounds[1]=y0*sy;bounds[2]=x1*sx;bounds[3]=y1*sy;
+}
+#endif
+
 void cpymo_backend_image_free(cpymo_backend_image image)
 {
     cpymo_backend_software_image *p = 

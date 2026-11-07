@@ -21,6 +21,9 @@ error_t cpymo_backend_image_load_with_mask(
 
 
 void cpymo_backend_image_free(cpymo_backend_image image);
+#ifdef GARLIC_NO_FFMPEG
+void garlic_image_ink_bounds(cpymo_backend_image, float bounds[4]);
+#endif
 
 
 /* Screen Coord in backend renderer
