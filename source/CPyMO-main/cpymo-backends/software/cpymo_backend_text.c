@@ -375,6 +375,15 @@ float cpymo_backend_text_width(
 }
 
 #ifdef GARLIC_NO_FFMPEG
+/* Convert output pixels to the same logical coordinates used by text. */
+float garlic_text_output_pixels(float pixels)
+{
+    cpymo_backend_software_context *ctx=cpymo_backend_software_cur_context;
+    float scale=ctx->text_layer ? ctx->text_scale :
+        (float)ctx->render_target->h/ctx->logical_screen_h;
+    return pixels/scale;
+}
+
 /* Logical space remaining for baselines, with actual glyph descenders and a
  * two-output-pixel shadow/safe margin reserved below the final baseline. */
 float garlic_textbox_safe_height(cpymo_str text,float size,float y,float height)

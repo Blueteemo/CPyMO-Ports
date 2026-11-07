@@ -173,7 +173,7 @@ void cpymo_textbox_draw(
 
 #ifdef GARLIC_NO_FFMPEG
         if(drawtype==cpymo_backend_image_draw_type_text_say){
-            float inset=(float)e->gameconfig.imagesize_h*.02f;
+            float inset=(float)e->gameconfig.imagesize_h*.02f+garlic_text_output_pixels(3.6f);
             x=e->gameconfig.imagesize_w-inset-e->say.msg_cursor_ink[2]*draw_w/e->say.msg_cursor_w;
             y=e->gameconfig.imagesize_h-inset-e->say.msg_cursor_ink[3]*draw_h/e->say.msg_cursor_h;
             x1=y1=0;

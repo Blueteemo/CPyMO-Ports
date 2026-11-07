@@ -31,6 +31,7 @@ float garlic_text_centered_baseline(cpymo_backend_text,float);
 float garlic_text_ink_left(cpymo_backend_text);
 void garlic_text_ink_bounds(cpymo_backend_text,float *,float *);
 float garlic_textbox_safe_height(cpymo_str,float,float,float);
+float garlic_text_output_pixels(float);
 #endif
 
 #ifdef ENABLE_TEXT_EXTRACT

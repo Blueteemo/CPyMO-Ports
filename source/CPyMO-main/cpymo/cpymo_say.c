@@ -475,8 +475,8 @@ error_t cpymo_say_reflow_textbox(cpymo_engine *e, float character_size)
         return CPYMO_ERR_SUCC;
     float old_x = tb->x, old_w = tb->w;
     float delta = (character_size - tb->char_size) * 0.375f;
-    tb->x += delta;
     tb->w -= delta;
+    tb->x = ((float)e->gameconfig.imagesize_w-tb->w)*.5f;
     error_t err = cpymo_textbox_reflow(tb, character_size);
     if (err != CPYMO_ERR_SUCC) {
         tb->x = old_x;
@@ -561,9 +561,9 @@ error_t cpymo_say_start(cpymo_engine *e, cpymo_str name, cpymo_str text)
 #endif
 
 #ifdef GARLIC_NO_FFMPEG
-    /* Translate both dialogue edges left by about 1.5 output pixels; retain width. */
-    x += fontsize * 0.375f - (float)e->gameconfig.imagesize_h/320.0f;
+    /* Center the existing usable width; retain font size and pagination. */
     w -= fontsize * 0.375f;
+    x = ((float)e->gameconfig.imagesize_w-w)*.5f;
 #endif
 
 	float y = (float)e->gameconfig.imagesize_h - msg_h + msgtb_t;

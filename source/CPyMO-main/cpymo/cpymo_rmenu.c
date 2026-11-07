@@ -309,7 +309,7 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
 
 #ifdef GARLIC_NO_FFMPEG
     rmenu->clock_text=NULL;rmenu->clock_label[0]=0;rmenu->clock_poll=0;
-    rmenu->clock_font_size=e->gameconfig.imagesize_h*.048f;
+    rmenu->clock_font_size=e->gameconfig.imagesize_h*.052f;
 #endif
 	rmenu->alive = true;
 
