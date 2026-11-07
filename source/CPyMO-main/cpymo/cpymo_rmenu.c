@@ -190,9 +190,14 @@ static void cpymo_rmenu_draw(const cpymo_engine *e, const void *ui_data)
 		cpymo_backend_image_draw_type_ui_element_bg);
 
 #ifdef GARLIC_NO_FFMPEG
-    if(r->clock_text)cpymo_backend_text_draw(r->clock_text,r->panel[0]+r->padding+e->gameconfig.imagesize_h/60.0f,
-        garlic_text_centered_baseline(r->clock_text,r->panel[1]+r->header_height/2),
-        cpymo_color_white,1,cpymo_backend_image_draw_type_ui_element);
+    if(r->clock_text) {
+        float top,bottom;
+        garlic_text_ink_bounds(r->clock_text,&top,&bottom);
+        float inset=r->padding+e->gameconfig.imagesize_h/60.0f;
+        cpymo_backend_text_draw(r->clock_text,r->panel[0]+inset-garlic_text_ink_left(r->clock_text),
+            r->panel[1]+inset-top,
+            cpymo_color_white,1,cpymo_backend_image_draw_type_ui_element);
+    }
 #endif
 	cpymo_select_img_draw(&r->menu, e->gameconfig.imagesize_w, e->gameconfig.imagesize_h, false);
 

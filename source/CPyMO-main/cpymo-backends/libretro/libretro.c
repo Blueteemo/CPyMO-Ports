@@ -54,6 +54,7 @@ static char garlic_log_path[PATH_MAX];
 static FILE *garlic_log_file;
 static size_t garlic_log_bytes;
 static unsigned garlic_output_percent = 50;
+#include "garlic_audio_observer.h"
 static void garlic_diagnostics_begin(const char *gamedir);
 static retro_video_refresh_t           video_cb;
 static retro_input_poll_t              input_poll_cb;
@@ -474,6 +475,9 @@ static void audio_callback(void)
 {
     static const int samples = 2048;
     static int16_t audio_buffer[2048 * 2];
+    uint32_t begin = garlic_audio_observer_enabled ? (uint32_t)garlic_micros() : 0;
+    bool bgm = garlic_audio_observer_enabled &&
+        cpymo_audio_channel_is_playing(CPYMO_AUDIO_CHANNEL_BGM, &engine.audio);
 #ifndef GARLIC_NO_FFMPEG
     /* This is the OTHER user of the mutex, and it is the one that runs on the
      * frontend's audio thread. Guard it the same way as the public lock:
@@ -488,12 +492,17 @@ static void audio_callback(void)
 #ifndef GARLIC_MP3_AUDIO
     garlic_output_gain(audio_buffer, samples * 2);
 #endif
-    audio_batch_cb(audio_buffer, samples);
+    uint32_t mixed = garlic_audio_observer_enabled ? (uint32_t)garlic_micros() : 0;
+    size_t accepted = audio_batch_cb(audio_buffer, samples);
+    if (garlic_audio_observer_enabled)
+        garlic_audio_observe(audio_buffer, samples, bgm, begin, mixed,
+            (uint32_t)garlic_micros(), accepted);
 }
 
 static void audio_set_state(bool enabled)
 {
     audio_enabled = enabled;
+    if (!enabled) __atomic_store_n(&garlic_audio_previous_active, 0, __ATOMIC_RELAXED);
 }
 
 void retro_set_environment(retro_environment_t cb)
@@ -527,8 +536,15 @@ static void garlic_write_audio_report(void)
     if (!path || !*path) return;
     FILE *f = fopen(path, "w");
     if (!f) return;
-    fprintf(f, "core_audio=phase-headroom7\nfrontend_audio_callback=%s\noutput_rate=48000\noutput_percent=%u\nresampler_taps=16\nresampler_phase_endpoint=continuous\nlimiter=linked_peak_5ms_hold_80ms_release\nhardware_listening=pending\n",
-        use_audio_callback ? "accepted" : "rejected_sync_fallback", garlic_output_percent);
+    uint32_t frames = __atomic_load_n(&garlic_capture_frames, __ATOMIC_ACQUIRE);
+    bool saved = garlic_audio_write_capture(getenv("CPYMO_AUDIO_CAPTURE"), frames);
+    fprintf(f, "core_audio=phase-headroom7-observer8\nfrontend_audio_callback=%s\noutput_rate=48000\noutput_percent=%u\nresampler_taps=16\nresampler_phase_endpoint=continuous\nlimiter=linked_peak_5ms_hold_80ms_release\ncallbacks=%u\nmax_mix_us=%u\nmax_submit_us=%u\nmax_bgm_callback_start_gap_us=%u\npartial_batches=%u\ncapture_frames=%u\ncapture_file_updated=%u\nhardware_listening=pending\n",
+        use_audio_callback ? "accepted" : "rejected_sync_fallback", garlic_output_percent,
+        __atomic_load_n(&garlic_audio_observed_calls, __ATOMIC_RELAXED),
+        __atomic_load_n(&garlic_audio_max_mix_us, __ATOMIC_RELAXED),
+        __atomic_load_n(&garlic_audio_max_submit_us, __ATOMIC_RELAXED),
+        __atomic_load_n(&garlic_audio_max_start_gap_us, __ATOMIC_RELAXED),
+        __atomic_load_n(&garlic_audio_partial_batches, __ATOMIC_RELAXED), frames, (unsigned)saved);
     fclose(f);
 }
 
@@ -585,6 +601,7 @@ static void frame_cb(retro_usec_t usec)
 
 void retro_init(void)
 {
+    garlic_audio_observer_configure();
     delta = 1.0f / 60.0f;
     enum retro_pixel_format pixfmt = RETRO_PIXEL_FORMAT_RGB565;
     struct retro_frame_time_callback frametime = {
@@ -1135,7 +1152,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=phase-headroom7 ui=visual-polish6\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=phase-headroom7 ui=clock-inset8\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
@@ -1582,6 +1599,8 @@ void retro_run(void)
     movie_audio = garlic_movie_audio(audio_buffer, samples);
 #endif
     if (audio_enabled && !use_audio_callback) {
+        uint32_t observed_begin = garlic_audio_observer_enabled ? (uint32_t)garlic_micros() : 0;
+        bool bgm = garlic_audio_observer_enabled && cpymo_audio_channel_is_playing(CPYMO_AUDIO_CHANNEL_BGM, &engine.audio);
         if (!movie_audio)
             cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
     #ifndef GARLIC_MP3_AUDIO
@@ -1589,7 +1608,11 @@ void retro_run(void)
 #else
         if (movie_audio) garlic_output_gain(audio_buffer, samples * 2);
 #endif
-        audio_batch_cb(audio_buffer, samples);
+        uint32_t mixed = garlic_audio_observer_enabled ? (uint32_t)garlic_micros() : 0;
+        size_t accepted = audio_batch_cb(audio_buffer, samples);
+        if (garlic_audio_observer_enabled)
+            garlic_audio_observe(audio_buffer, samples, bgm, observed_begin, mixed,
+                (uint32_t)garlic_micros(), accepted);
     }
     garlic_prof_audio_us += garlic_micros() - tick;
 }
@@ -1657,6 +1680,7 @@ void retro_unload_game(void)
             log_cb(RETRO_LOG_ERROR, "restore cwd failed: %s\n", strerror(errno));
         garlic_directory_changed = false;
     }
+    garlic_write_audio_report();
 }
 
 unsigned retro_get_region(void)
