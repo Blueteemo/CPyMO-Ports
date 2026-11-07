@@ -149,7 +149,12 @@ mkdir -p "$LOGDIR" || exit 46
 LOG="${CPYMO_LOG:-$LOGDIR/launcher.log}"
 CPYMO_AUDIO_REPORT="${CPYMO_AUDIO_REPORT:-$LOGDIR/audio-status.txt}"
 export CPYMO_AUDIO_REPORT
-CPYMO_AUDIO_CAPTURE="${CPYMO_AUDIO_CAPTURE:-$LOGDIR/audio-capture.wav}"
+# Recording is opt-in; leave the normal run free of the 10-second PCM capture.
+if [ "${CPYMO_AUDIO_DIAGNOSTICS:-0}" = "1" ]; then
+    CPYMO_AUDIO_CAPTURE="${CPYMO_AUDIO_CAPTURE:-$LOGDIR/audio-capture.wav}"
+else
+    CPYMO_AUDIO_CAPTURE="${CPYMO_AUDIO_CAPTURE:-}"
+fi
 export CPYMO_AUDIO_CAPTURE
 # No source/eval of a writable settings file. Only a validated number is read.
 if [ -z "${CPYMO_OUTPUT_PERCENT:-}" ]; then
@@ -347,7 +352,7 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
 {
     echo '=== CPyMO RG35XX GarlicOS/uClibc launcher ==='
-    echo 'launcher_revision=0.24.5-reading9'
+    echo 'launcher_revision=0.24.5-audio10'
     echo "time=$(date 2>/dev/null)"
     echo "script=$0"
     echo "launcher=$SELF"
