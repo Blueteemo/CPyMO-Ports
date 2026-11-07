@@ -46,7 +46,7 @@ typedef struct {
 	float bg_zoom_out;
 
 #ifdef GARLIC_NO_FFMPEG
-    float panel[4],padding,header_height,clock_height,clock_gap,clock_font_size,clock_poll;
+    float panel[4],padding,bottom_padding,header_height,clock_height,clock_gap,clock_font_size,clock_poll;
     cpymo_backend_text clock_text;
     char clock_label[6];
 #endif
@@ -72,20 +72,21 @@ static void garlic_rmenu_layout(cpymo_engine *e,cpymo_rmenu *r)
     float width,height;cpymo_select_img_measure_text_rows(&r->menu,&width,&height);
     float sw=e->gameconfig.imagesize_w,sh=e->gameconfig.imagesize_h;
     float margin=sh*.01f;
-    r->padding=sh*.015f;r->clock_gap=sh*.0125f;
+    r->padding=sh*.015f;r->bottom_padding=sh*.04f;r->clock_gap=sh*.0125f;
     float top,bottom;garlic_text_ink_bounds(r->clock_text,&top,&bottom);
     r->clock_height=bottom-top;
     float available=sh-2*margin;
     /* The stock SYSTEM skin uses roughly the upper 15% for its title bar.
        Keep all choices below it, including Auto, instead of treating the
        entire bitmap as the selectable content rectangle. */
-    float required=fmaxf((height+r->clock_gap+r->padding)/.84f,
-        height+r->clock_gap+r->clock_height+3*r->padding);
+    float required=fmaxf((height+r->clock_gap+r->bottom_padding)/.84f,
+        height+r->clock_gap+r->clock_height+2*r->padding+r->bottom_padding);
     if(required>available){
-        cpymo_select_img_fit_text_rows(&r->menu,cpymo_gameconfig_font_size(&e->gameconfig),0);
+        /* On compact canvases reclaim unused font-box spacing, not ink. */
+        cpymo_select_img_fit_text_rows(&r->menu,0,sh/480.0f);
         cpymo_select_img_measure_text_rows(&r->menu,&width,&height);
-        required=fmaxf((height+r->clock_gap+r->padding)/.84f,
-            height+r->clock_gap+r->clock_height+3*r->padding);
+        required=fmaxf((height+r->clock_gap+r->bottom_padding)/.84f,
+            height+r->clock_gap+r->clock_height+2*r->padding+r->bottom_padding);
     }
     float scale=fmaxf(1,required/(float)r->bg_h);
     r->panel[2]=fminf(sw-2*margin,fmaxf(width+2*r->padding,r->bg_w*scale));
@@ -404,7 +405,7 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
     xywh[0]=rmenu->panel[0]+rmenu->padding;
     xywh[1]=rmenu->panel[1]+rmenu->header_height+rmenu->clock_gap;
     xywh[2]=rmenu->panel[2]-2*rmenu->padding;
-    xywh[3]=rmenu->panel[1]+rmenu->panel[3]-rmenu->padding-xywh[1];
+    xywh[3]=rmenu->panel[1]+rmenu->panel[3]-rmenu->bottom_padding-xywh[1];
 #endif
 	cpymo_select_img_configuare_end_select_text(
 		&rmenu->menu,

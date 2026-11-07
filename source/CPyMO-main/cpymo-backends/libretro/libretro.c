@@ -1119,7 +1119,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=rollback-v0244 ui=boot-toast-header4\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/80/88 movie=disabled audio=rollback-v0244 ui=dialogue-half-em5\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;

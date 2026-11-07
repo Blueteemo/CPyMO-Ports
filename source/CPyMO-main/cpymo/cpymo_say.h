@@ -51,4 +51,8 @@ void cpymo_say_hidewindow_until_click(struct cpymo_engine *e);
 
 void cpymo_say_stop_auto_mode(struct cpymo_engine *e);
 
+#ifdef GARLIC_NO_FFMPEG
+error_t cpymo_say_reflow_textbox(struct cpymo_engine *, float);
+#endif
+
 #endif

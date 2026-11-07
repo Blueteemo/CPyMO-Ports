@@ -439,6 +439,25 @@ static error_t cpymo_say_wait_text_fadein_callback(cpymo_engine *e)
 	return CPYMO_ERR_SUCC;
 }
 
+#ifdef GARLIC_NO_FFMPEG
+error_t cpymo_say_reflow_textbox(cpymo_engine *e, float character_size)
+{
+    cpymo_textbox *tb = &e->say.textbox;
+    if (!e->say.textbox_usable || !tb->chars_pool || tb->char_size == character_size)
+        return CPYMO_ERR_SUCC;
+    float old_x = tb->x, old_w = tb->w;
+    float delta = (character_size - tb->char_size) * 0.5f;
+    tb->x += delta;
+    tb->w -= delta;
+    error_t err = cpymo_textbox_reflow(tb, character_size);
+    if (err != CPYMO_ERR_SUCC) {
+        tb->x = old_x;
+        tb->w = old_w;
+    }
+    return err;
+}
+#endif
+
 error_t cpymo_say_start(cpymo_engine *e, cpymo_str name, cpymo_str text)
 {
 	cpymo_say_lazy_init(&e->say, &e->assetloader);
@@ -507,6 +526,12 @@ error_t cpymo_say_start(cpymo_engine *e, cpymo_str name, cpymo_str text)
 	float msg_h = (float)e->say.msgbox_h;
 	float x = (e->gameconfig.imagesize_w - e->say.msgbox_w) / 2 + msglr_l;
 	float w = e->say.msgbox_w - msglr_l - msglr_r;
+#endif
+
+#ifdef GARLIC_NO_FFMPEG
+    /* Give dialogue a half-em inset while preserving its authored right edge. */
+    x += fontsize * 0.5f;
+    w -= fontsize * 0.5f;
 #endif
 
 	float y = (float)e->gameconfig.imagesize_h - msg_h + msgtb_t;

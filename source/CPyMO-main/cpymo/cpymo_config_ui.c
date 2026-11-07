@@ -552,7 +552,7 @@ JUST_REFRESH:
         uint8_t previous = e->gameconfig.garlic_font_large;
         e->gameconfig.garlic_font_large = val == 0 ? 2 : val == 2 ? 1 : 0;
         if (e->say.textbox_usable) {
-            error_t reflow_err = cpymo_textbox_reflow(&e->say.textbox,
+            error_t reflow_err = cpymo_say_reflow_textbox(e,
                 cpymo_gameconfig_font_size(&e->gameconfig));
             if (reflow_err != CPYMO_ERR_SUCC) {
                 e->gameconfig.garlic_font_large = previous;
@@ -568,7 +568,7 @@ JUST_REFRESH:
             if (name_err != CPYMO_ERR_SUCC) {
                 e->gameconfig.garlic_font_large = previous;
                 if (e->say.textbox_usable)
-                    cpymo_textbox_reflow(&e->say.textbox, cpymo_gameconfig_font_size(&e->gameconfig));
+                    cpymo_say_reflow_textbox(e, cpymo_gameconfig_font_size(&e->gameconfig));
                 cpymo_config_ui_refresh_items(e);
                 return name_err;
             }
