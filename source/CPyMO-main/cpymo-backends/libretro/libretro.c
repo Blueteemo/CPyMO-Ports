@@ -72,6 +72,7 @@ static void garlic_text_layer_configure(void);
 static bool                           garlic_first_frame = false;
 /* Keep the complete library output while the boot script has not drawn yet. */
 static bool                           garlic_waiting_for_game_frame = false;
+static bool                           garlic_bezel_enabled;
 static bool                           garlic_pixel_format_supported = false;
 static bool                           garlic_engine_ready = false;
 static bool                           garlic_game_loaded = false;
@@ -1150,6 +1151,8 @@ static error_t garlic_start_queued_game(void)
 
 bool retro_load_game(const struct retro_game_info *game)
 {
+    const char *bezel = getenv("CPYMO_BEZEL");
+    garlic_bezel_enabled = !bezel || strcmp(bezel, "0") != 0;
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
@@ -1558,6 +1561,12 @@ void retro_run(void)
                 log_cb(RETRO_LOG_ERROR, "GarlicOS: frame conversion failed\n");
                 environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
                 return;
+            }
+            if (garlic_bezel_enabled && garlic_screen == GARLIC_SCREEN_GAME) {
+                garlic_viewport picture;
+                if (garlic_compute_viewport(soft_image.w, soft_image.h,
+                        GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT, &picture))
+                    garlic_draw_bezel(garlic_rgb565_frame, &picture);
             }
             garlic_text_layer_composite(garlic_rgb565_frame);
             garlic_prof_convert_us += garlic_micros() - after_draw;

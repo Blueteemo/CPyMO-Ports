@@ -205,9 +205,13 @@ void cpymo_say_draw(const struct cpymo_engine *e)
 				cpymo_backend_image_fill_rects(xywh, 1, gray, 0.5f, cpymo_backend_image_draw_type_text_say_textbox);
 			}
 
+			float name_y = namebox_y + cpymo_gameconfig_font_size(&e->gameconfig) / 10.0f * 9.0f;
+#ifdef GARLIC_NO_FFMPEG
+			name_y -= garlic_text_output_pixels(1.0f);
+#endif
 			cpymo_backend_text_draw(
 				e->say.name,
-				name_x, namebox_y + cpymo_gameconfig_font_size(&e->gameconfig) / 10.0f * 9.0f,
+				name_x, name_y,
 				e->gameconfig.textcolor,
 				cpymo_say_read_alpha(e),
 				cpymo_backend_image_draw_type_text_say);

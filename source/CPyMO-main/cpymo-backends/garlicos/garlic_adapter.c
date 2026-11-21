@@ -1,4 +1,6 @@
 #include "garlic_adapter.h"
+#include "garlic_bezel_art.h"
+#include "garlic_smoked_resin.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -43,6 +45,120 @@ bool garlic_compute_viewport(int sw, int sh, int dw, int dh, garlic_viewport *v)
     v->x = (dw - v->w) / 2;
     v->y = (dh - v->h) / 2;
     return true;
+}
+
+static void garlic_fill_bezel_band(uint16_t *band, int height, bool bottom)
+{
+    const int rim_rows = sizeof(bezel_rim_colors) / sizeof(*bezel_rim_colors);
+    int surface_height = height - rim_rows;
+    for (int y = 0; y < height; ++y) {
+        int depth = bottom ? y : height - 1 - y;
+        uint16_t *line = band + (size_t)y * GARLIC_OUTPUT_WIDTH;
+        if (depth < rim_rows) {
+            uint16_t color = bezel_rim_colors[depth];
+            for (int x = 0; x < GARLIC_OUTPUT_WIDTH; ++x)
+                line[x] = color;
+        } else {
+            int surface_y = bottom ? y - rim_rows : y;
+            int texture_y = surface_height > 1
+                ? surface_y * (GARLIC_RESIN_ROWS - 1) / (surface_height - 1)
+                : 0;
+            memcpy(line, smoked_resin_face + (size_t)texture_y * GARLIC_OUTPUT_WIDTH,
+                   GARLIC_OUTPUT_WIDTH * sizeof(*line));
+        }
+    }
+}
+
+static void garlic_draw_bezel_detail(uint16_t *band, int height,
+    int x, int y, const uint16_t *detail, int width, int rows)
+{
+    if (y < 0 || rows > height - y) return;
+    for (int row = 0; row < rows; ++row) {
+        uint16_t *line = band + (size_t)(y + row) * GARLIC_OUTPUT_WIDTH + x;
+        for (int col = 0; col < width; ++col) {
+            if (detail[col]) line[col] = detail[col];
+        }
+        detail += width;
+    }
+}
+
+static void garlic_draw_bezel_lamp(uint16_t *frame, int height)
+{
+    static const uint16_t transmission[] = {
+        256, 250, 243, 232, 219, 204, 188, 170, 152, 134, 116, 98,
+        80, 64, 49, 37, 27, 19, 12, 7, 4, 2, 1,
+    };
+    static const uint16_t spread[] = {
+        256, 255, 254, 251, 248, 243, 238, 232, 225, 218, 211, 204,
+        196, 189, 181, 174, 167, 160, 153, 146, 140, 134, 128, 122,
+        116, 110, 105, 100, 94, 89, 84, 80, 75, 70, 66, 62,
+        58, 54, 50, 47, 43, 40, 37, 34, 32, 29, 27, 24,
+        22, 20, 19, 17, 15, 14, 13, 11, 10, 9, 8, 7,
+        7, 6, 5, 5, 4, 4, 3, 3,
+    };
+    /* Align the glow with the RG35XX indicator. */
+    const int center_right = 132;
+    const int horizontal = sizeof(spread) / sizeof(*spread);
+    const int profile_height = sizeof(transmission) / sizeof(*transmission);
+    int rows = profile_height;
+    if (rows > height) rows = height;
+    for (int y = 0; y < rows; ++y) {
+        uint16_t *line = frame + (size_t)y * GARLIC_OUTPUT_WIDTH;
+        unsigned vertical = transmission[y];
+        if (height < profile_height && height - y < 5)
+            vertical = vertical * (unsigned)(height - y) / 5;
+        for (int x = center_right - horizontal; x < center_right + horizontal; ++x) {
+            int offset = x - center_right;
+            int distance = offset < 0 ? -1 - offset : offset;
+            unsigned light = vertical * spread[distance];
+            /* Keep the same RGB565 dither in coordinates relative to the lamp. */
+            uint32_t grain = (uint32_t)(129 + offset + (GARLIC_OUTPUT_WIDTH + 1) * y) * UINT32_C(0x9e3779b9);
+            grain ^= grain >> 13;
+            unsigned threshold = 8192 + ((grain >> 19) & 32767);
+            unsigned base = line[x];
+            unsigned g = ((base >> 5) & 63) + ((10 * light + threshold) >> 16);
+            unsigned b = (base & 31) - ((2 * light + threshold) >> 16);
+            line[x] = (uint16_t)((base & 0xf800) | (g << 5) | b);
+        }
+    }
+}
+
+void garlic_draw_bezel(uint16_t *frame, const garlic_viewport *picture)
+{
+    if (picture->x != 0 || picture->w != GARLIC_OUTPUT_WIDTH ||
+        picture->y <= 0 || picture->h <= 0 ||
+        picture->h >= GARLIC_OUTPUT_HEIGHT - picture->y)
+        return;
+
+    int top_height = picture->y;
+    int bottom_y = top_height + picture->h;
+    int bottom_height = GARLIC_OUTPUT_HEIGHT - bottom_y;
+    uint16_t *bottom = frame + (size_t)bottom_y * GARLIC_OUTPUT_WIDTH;
+
+    garlic_fill_bezel_band(frame, top_height, false);
+    garlic_fill_bezel_band(bottom, bottom_height, true);
+    garlic_draw_bezel_lamp(frame, top_height - 3);
+
+    /* Keep the approved ornaments at their native size as the bars deepen. */
+    int accent_y = top_height / 2 - 2;
+    const int accent_inset = 47;
+    garlic_draw_bezel_detail(frame, top_height - 3, accent_inset, accent_y,
+        bezel_accent, BEZEL_ACCENT_W, BEZEL_ACCENT_H);
+    garlic_draw_bezel_detail(frame, top_height - 3,
+        GARLIC_OUTPUT_WIDTH - accent_inset - BEZEL_ACCENT_W, accent_y,
+        bezel_accent, BEZEL_ACCENT_W, BEZEL_ACCENT_H);
+
+    int vent_y = bottom_height / 2 - 3;
+    if (vent_y >= 3) {
+        garlic_draw_bezel_detail(bottom, bottom_height, 231, vent_y,
+            bezel_vent, BEZEL_VENT_W, BEZEL_VENT_H);
+        garlic_draw_bezel_detail(bottom, bottom_height, 393, vent_y,
+            bezel_vent, BEZEL_VENT_W, BEZEL_VENT_H);
+    }
+    if (bottom_height >= 27)
+        garlic_draw_bezel_detail(bottom, bottom_height,
+            (GARLIC_OUTPUT_WIDTH - BEZEL_PLAQUE_W + 1) / 2, bottom_height / 2 - 8,
+            bezel_plaque, BEZEL_PLAQUE_W, BEZEL_PLAQUE_H);
 }
 
 static inline uint16_t rgb565(const uint8_t *p)

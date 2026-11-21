@@ -47,6 +47,9 @@ bool garlic_compute_viewport(int src_w, int src_h,
                              int screen_w, int screen_h,
                              garlic_viewport *out);
 
+/* Paint the E bezel only in the horizontal letterbox bars of a 640x480 frame. */
+void garlic_draw_bezel(uint16_t *frame, const garlic_viewport *picture);
+
 /* Source: 32-bit BGRA bytes like current CPyMO libretro soft_image
    (B at +0, G at +1, R at +2). Destination: native-endian RGB565.
    Returns false and does not draw for invalid parameters. */
