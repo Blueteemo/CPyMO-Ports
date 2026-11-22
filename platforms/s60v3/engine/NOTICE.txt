@@ -1,0 +1,16 @@
+CPyMO S60v3 independent port, 2026.
+CPyMO base commit: 5a746bc72a4a8c127e0aee7deb20bf415c385ae2.
+CPyMO Copyright (c) its respective upstream contributors. GNU GPL v3.
+Symbian SDL 1.2.14_ag Copyright SDL and Symbian SDL contributors. LGPL 2.1.
+stb libraries: upstream authors, public domain/MIT alternatives as in bundled headers.
+minimp3: lieff and contributors, CC0 1.0, see thirdparty license.
+CPyMO S60 Shared Sans derived from Noto Sans CJK SC; SIL Open Font License 1.1.
+Story pixel font: WenQuanYi Bitmap Song 16px, copyright The WenQuanYi Project,
+FangQ and Firefly. TTF conversion by AmusementClub. GNU GPL v2 with the font
+embedding exception. See WenQuanYi-README.txt and WenQuanYi-AUTHORS.txt.
+Optional 12 px dialogue test font: Fusion Pixel Font by TakWolf, SIL Open Font
+License 1.1, with Ark Pixel, Cubic 11 and Galmuri notices in the Fusion license files.
+No original PyMO application or game files are installed or replaced by this package.
+Game resources remain subject to their original authors' licenses and credits.
+Port integration and testing: 千岚之夏 with AI-assisted development.
+This independent study does not imply CPyMO 2 developer endorsement.

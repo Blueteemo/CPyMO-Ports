@@ -1,0 +1,691 @@
+{
+  "upstream_family": "Noto Sans CJK SC Regular",
+  "source_path": "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+  "source_face": 2,
+  "source_sha256": "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a",
+  "source_primary_url": "https://github.com/notofonts/noto-cjk",
+  "source_version_note": [
+    "Version 2.004;hotconv 1.0.118;makeotfexe 2.5.65603"
+  ],
+  "license_primary_url": "https://github.com/notofonts/noto-cjk/blob/main/Sans/LICENSE",
+  "license": "SIL Open Font License 1.1",
+  "modified_family": "CPyMO S60 Shared Sans",
+  "sha256": "a6530c1a720c56ef859bc940775616a3b9e30f8253b6c2875818dda4d3b96d00",
+  "bytes": 1591220,
+  "unicode_codepoints": 7672,
+  "glyphs": 7671,
+  "gb2312_characters": 7445,
+  "game_characters": 3209,
+  "game_required_missing": [],
+  "ui_required_missing": [],
+  "automatic_unassigned_or_unavailable_range_points_omitted": [
+    12352,
+    12439,
+    12440
+  ],
+  "source_games": [
+    "Naru",
+    "Yume"
+  ],
+  "game_inputs": [
+    {
+      "path": "Naru/gameconfig.txt",
+      "sha256": "183248ef7ebe85378c1527c41fa310b34f2ed6ec077cd8c35c98f48b1da3477e"
+    },
+    {
+      "path": "Naru/script/MENU.txt",
+      "sha256": "621ab1c8300f94dfbc5aea28ecc6cd171ca65263799ae8d45574cd6846c7c5c1"
+    },
+    {
+      "path": "Naru/script/NaruC1.txt",
+      "sha256": "2e81f862d0d07e3d81dece59edf560aefa600d076f49cb01bb92d97967560161"
+    },
+    {
+      "path": "Naru/script/NaruC2.txt",
+      "sha256": "2b09854574e58527ba80bdf6efcb8dafdefb54785af54284e9459d729bdabeb0"
+    },
+    {
+      "path": "Naru/script/NaruC3.txt",
+      "sha256": "61b2e3910210b6c38e17d93b157b1a09ec00855cf8b62fda9d451cc66d8edbd0"
+    },
+    {
+      "path": "Naru/script/NaruC4.txt",
+      "sha256": "f80c30dbbe20543c1df7b53eb9d7e0323a835725989f1e9b7ca3787ccf0213df"
+    },
+    {
+      "path": "Naru/script/NaruC5.txt",
+      "sha256": "d4d6f04dbdff519fc840f0a5eb200c71a9e970cd39bfa54ec83554b3e6882f47"
+    },
+    {
+      "path": "Naru/script/NaruC6.txt",
+      "sha256": "c378d1761670f125c67bbadeec5e6ba5265764aff916af5397c75c0b8064bceb"
+    },
+    {
+      "path": "Naru/script/NaruC7.txt",
+      "sha256": "deabb9ff9a70331e0bf29c8d44630731f86ab33db5079ff179d7e28252b7df53"
+    },
+    {
+      "path": "Naru/script/NaruC8.txt",
+      "sha256": "cfa2f8c6ef74a30d8f8f71c252eaf397d93e57de57e947f8ce9285857322fce7"
+    },
+    {
+      "path": "Naru/script/NaruC9.txt",
+      "sha256": "21516c5985aff49a7ba56112eaf3bc80522e92c74fb090863b00cc49dd9e721f"
+    },
+    {
+      "path": "Yume/gameconfig.txt",
+      "sha256": "06b7d83f10eb5f76f966eb35484f8c157d4b7fc462cdf7d7c011e9e42c6dc2a5"
+    },
+    {
+      "path": "Yume/script/album_list.txt",
+      "sha256": "c6beab405e6db9ae641a1c19f13fc4e180209377043d9573ab5b32b18253ae9e"
+    },
+    {
+      "path": "Yume/script/music_list.txt",
+      "sha256": "79decbec33e6791d42b6d49685d020fb2e24f07bcf73be6240c74010d253efc8"
+    },
+    {
+      "path": "Yume/script/p_a002_01.txt",
+      "sha256": "0c79ff1664878004b3aa00a30b4060a4833dcc50e44a65d97b6416caf8c4180d"
+    },
+    {
+      "path": "Yume/script/p_a002_02.txt",
+      "sha256": "e6eec2271098c6547510e6b2e40e81e7adfa86aea0e5e81535ad6f13eeda8705"
+    },
+    {
+      "path": "Yume/script/p_a002_03a.txt",
+      "sha256": "3635b198c9b50103616439133d803bebee7e4a017c3431bfb411dad92eb242a9"
+    },
+    {
+      "path": "Yume/script/p_a002_03b.txt",
+      "sha256": "c22a355028ce7545a08f1f7ed79830aecb98a584b4405e9c51175874247f5929"
+    },
+    {
+      "path": "Yume/script/p_a002_04.txt",
+      "sha256": "8f5c391d954f7595b4db06bdf6cc71d403dcf52a973bf8e738d776b05b7b3388"
+    },
+    {
+      "path": "Yume/script/p_a002_05.txt",
+      "sha256": "91c15eb1dec3a6b9d9881a71f532e3b57b1fcd7a56537f8dd429f898209225ef"
+    },
+    {
+      "path": "Yume/script/p_a002_06.txt",
+      "sha256": "82bb7c01bcb809333d6406575ad5fde94441a29de4731be2130c60eeb709ba3c"
+    },
+    {
+      "path": "Yume/script/p_a002_07.txt",
+      "sha256": "d73d4f92e0672d48285b353a4c8e5429c6c81ee43f03ab8af61c6138ab79dce6"
+    },
+    {
+      "path": "Yume/script/p_a002_08.txt",
+      "sha256": "addfd38615a6957b1c0026b24d3bbe95ad03a18f3a3ed5d2bd1dd66ed59828c2"
+    },
+    {
+      "path": "Yume/script/p_a002_09.txt",
+      "sha256": "cbb5006c909183902d2b7f68fe7af148252bf77c3e7780a819e0f551cd75d39a"
+    },
+    {
+      "path": "Yume/script/p_a002_10.txt",
+      "sha256": "9a14d72038bdeb2feb27dcc2afc04bb04de110baab0b7f32028e68721cba800d"
+    },
+    {
+      "path": "Yume/script/p_a002_11.txt",
+      "sha256": "8a92d34f2d04b9b208198c69a0e175a535e16ab2882b035f52371a068f918037"
+    },
+    {
+      "path": "Yume/script/p_a002_12.txt",
+      "sha256": "aa8074269090e4b9548817c18ca9257fd6b16978ccde7b5027deca2afa1aa6f9"
+    },
+    {
+      "path": "Yume/script/p_a002_13.txt",
+      "sha256": "0f21b6ce5fefddc0a2b56191bde8ad9adefe250c022d9effcdff8ad8c3921239"
+    },
+    {
+      "path": "Yume/script/p_a002_14.txt",
+      "sha256": "54337a3a1a554d5817ffe0cdd1fdf459a5996113fa1dfbdf2288e9adbc873fab"
+    },
+    {
+      "path": "Yume/script/p_a002_15.txt",
+      "sha256": "fd71a2f52cc35fb1632c0abfce2c89391c3e4c21015b81b1598551a1ccf554b4"
+    },
+    {
+      "path": "Yume/script/p_cg_album.txt",
+      "sha256": "5e54a33c97b0796545074300619b68fe40a30abbe076ef2b53d0fd59ebd6b5cb"
+    },
+    {
+      "path": "Yume/script/p_end_of_script.txt",
+      "sha256": "b7cc06a9b09676b4354e43e4e6d080501dd50755fb03d704e8db42b89530b870"
+    },
+    {
+      "path": "Yume/script/p_extras_menu.txt",
+      "sha256": "ab17f59b08d7e2a53dd8b529f60b2fc1281960a6e9c9708eabb27071b54f028b"
+    },
+    {
+      "path": "Yume/script/p_load_game.txt",
+      "sha256": "0ba2644248b2d1f36adbf82ea4f620458ea90c0e1c31f87df8acc6d7e468c6c7"
+    },
+    {
+      "path": "Yume/script/p_m004_01a.txt",
+      "sha256": "df1f2c8b5f3855549c0a725068f234185c8f6eac33a8dc1e7fe897920bec73e6"
+    },
+    {
+      "path": "Yume/script/p_m004_01b.txt",
+      "sha256": "001d4ad399cf5da7476e367fa30a5ca11990e8272f8c096de380d71403473f8d"
+    },
+    {
+      "path": "Yume/script/p_m004_01c.txt",
+      "sha256": "80952573e03e6b3340906097f60b2f3949e99b667d44b2279d54297998ce50ef"
+    },
+    {
+      "path": "Yume/script/p_m004_01d.txt",
+      "sha256": "016f53823e83b309f2ac88b685ba9056ce9a60d79dedb255461013fc43257bd3"
+    },
+    {
+      "path": "Yume/script/p_m004_01e.txt",
+      "sha256": "850418044353bb6d0d877e21a35952887e8f83d95e32be6985d1cfac4bfc78a2"
+    },
+    {
+      "path": "Yume/script/p_m004_01f.txt",
+      "sha256": "2ccce359d8221bc14a6cd628720e9bd18887c2aa909be1b883bada345e20efaf"
+    },
+    {
+      "path": "Yume/script/p_m004_02a.txt",
+      "sha256": "c9e7d69df2176a000b42c6b7336657da76e76416afb49e6329a62a980faeda24"
+    },
+    {
+      "path": "Yume/script/p_m004_02b.txt",
+      "sha256": "85a0d9c8f9f64e539c084b6df06973f6046309a6f075c22716bb8c4ef8a286f7"
+    },
+    {
+      "path": "Yume/script/p_m004_02c.txt",
+      "sha256": "d3addd0258a36a52334e2d5ab5343d59509d849783327e870936235f3a3c7874"
+    },
+    {
+      "path": "Yume/script/p_m004_02d.txt",
+      "sha256": "837bdc05bc8e1e98bb0d1b3999d16eb2b704885387068ec8a570069ad25882e9"
+    },
+    {
+      "path": "Yume/script/p_m004_02e.txt",
+      "sha256": "1835ca880d0a619dbfe0552dfcd30e8a9ac0c1c510779dc1b39ba6f57df67e1d"
+    },
+    {
+      "path": "Yume/script/p_m004_03a.txt",
+      "sha256": "66fe748a7f6c392a6d3571ac69fead54481560deeedf97c11314a7eeeceb5e31"
+    },
+    {
+      "path": "Yume/script/p_m004_03b.txt",
+      "sha256": "4d0041ba70e8bec541e40f5fa638e53d9c86b754523892ff56d942f32900765b"
+    },
+    {
+      "path": "Yume/script/p_m004_03c.txt",
+      "sha256": "9f670445bbb06f4e7ec64b8a37d929f06353de9ab0cc01eae0c53cd7ecc3b9f1"
+    },
+    {
+      "path": "Yume/script/p_m004_03d.txt",
+      "sha256": "f7ad1c4beb85f02f6083c2d72aa3d573affa7140dc2103a8e25c36caeb08449b"
+    },
+    {
+      "path": "Yume/script/p_m004_04.txt",
+      "sha256": "d07ba561b04de980a75fb2fcbe5739d6a091cf5f0ba9944511ffd42f506d0965"
+    },
+    {
+      "path": "Yume/script/p_m004_05.txt",
+      "sha256": "789d61ab839a3a9410b2aabcaff32c4a3922a9a125137d2080744fbcf4eff22f"
+    },
+    {
+      "path": "Yume/script/p_m004_06a.txt",
+      "sha256": "9e81ebf0b029349867d1966e1e97ecefa5768f233de38dae0802c3f36e220ea2"
+    },
+    {
+      "path": "Yume/script/p_m004_06b.txt",
+      "sha256": "00e54231a1a273538d4927d05fedbe42de83c9cd8dd408c37915ea3fe0878306"
+    },
+    {
+      "path": "Yume/script/p_m004_06c.txt",
+      "sha256": "1eb1fcb896db7af610808e568a780740337150cab04989de812dcaef54ba4a26"
+    },
+    {
+      "path": "Yume/script/p_m004_06d.txt",
+      "sha256": "3b6810564b0515d89028226ff95a415e1a172aca443197a56c899bc33c7b3716"
+    },
+    {
+      "path": "Yume/script/p_m004_07a.txt",
+      "sha256": "473161d5c3629bdfb0e1c9d92bc431abe515157c0dd325958030f31b54db2d8e"
+    },
+    {
+      "path": "Yume/script/p_m004_07b.txt",
+      "sha256": "8c552192a99feace28f2a9ee05120982ae9908c8b71dc054ee9b1cf03a8434db"
+    },
+    {
+      "path": "Yume/script/p_m004_07c.txt",
+      "sha256": "44a84b9f8adc1e02bdb3de8569018766a7293f94d594bc3f2390e915868eddfb"
+    },
+    {
+      "path": "Yume/script/p_m004_08.txt",
+      "sha256": "62005e07cfb8237e178b65b397226df03c05d6406f8416fbe05543ea43b928ab"
+    },
+    {
+      "path": "Yume/script/p_m004_09a.txt",
+      "sha256": "d3797abe59521e06b143ea2118d010666f324133ebbfa1999b5907c7ad0c2919"
+    },
+    {
+      "path": "Yume/script/p_m004_09b.txt",
+      "sha256": "4a1677ee283fefe7039b5f5bb4d9fad77e0a738aadc766eda0cf67644f83cf80"
+    },
+    {
+      "path": "Yume/script/p_m004_09c.txt",
+      "sha256": "0d8a2ce3bb1f8d7514431008dde199673bf9c12ccbc89c339c90b5fc4c1a6c11"
+    },
+    {
+      "path": "Yume/script/p_m004_09d.txt",
+      "sha256": "9e30a74364fb1eefff98cde1f44d54394e664a682ba8b6dfc285368a3f4372e1"
+    },
+    {
+      "path": "Yume/script/p_m004_10.txt",
+      "sha256": "fec691cae34125fc24ecf9200da2dcdc012aee9fed171280c58cc3ce51a8348f"
+    },
+    {
+      "path": "Yume/script/p_m004_11.txt",
+      "sha256": "441a4bee2c4771333283a5b357ba69ff6b7bb6b93d163e9e8930489f8dc64b8c"
+    },
+    {
+      "path": "Yume/script/p_m004_12.txt",
+      "sha256": "68c7913e6e568d485ec35ed44cd2f644a4c9145f04551f8ec69b19c296df3fff"
+    },
+    {
+      "path": "Yume/script/p_m004_13.txt",
+      "sha256": "32af2c024de5f91db35bf0ea8d6759c0e4f6af8531ecfe02a934cffcc8ad5ce0"
+    },
+    {
+      "path": "Yume/script/p_mainmenu.txt",
+      "sha256": "c4121f0d714763b0b595c71310714111abd43b4a691fc8c1c4a630a92969406b"
+    },
+    {
+      "path": "Yume/script/p_music_gallery.txt",
+      "sha256": "a7cac41ede6c9ecd4d5d2a95a19b80a0ebc47fd631945f3fd1fcf5c58414b080"
+    },
+    {
+      "path": "Yume/script/p_n003_01a.txt",
+      "sha256": "fa62c0c41d23dd65c005f2b7194726c65cc80df6c9df8c041936fb9aa63f8a2c"
+    },
+    {
+      "path": "Yume/script/p_n003_01b.txt",
+      "sha256": "4c51560301d459fac2822283a282c9a1bd52b267f7860bd655410512861833bd"
+    },
+    {
+      "path": "Yume/script/p_n003_01c.txt",
+      "sha256": "7b0482f2ed477d56e1b4f041cdc34615e892be2daa222bca51af2d0e35f0fb30"
+    },
+    {
+      "path": "Yume/script/p_n003_01d.txt",
+      "sha256": "57a2f75323b0f85c26a4ba69fec876e9c70a1d449afb2d4db40b0d97b2ad53cc"
+    },
+    {
+      "path": "Yume/script/p_n003_02.txt",
+      "sha256": "67ce1b676bdde0fe0c466f039f9dd1ba9650b77dd3ed0c6b20940aedbbaa2041"
+    },
+    {
+      "path": "Yume/script/p_n003_03.txt",
+      "sha256": "48f9f113b5a1d597dfbe11de8ff0aece5c01b862097aeb224f5108ee87efc590"
+    },
+    {
+      "path": "Yume/script/p_n003_04.txt",
+      "sha256": "f4c8a47f8acd79e31a6614e96b050d8318c5c283a6942a7d7890e0e19b279122"
+    },
+    {
+      "path": "Yume/script/p_n003_05.txt",
+      "sha256": "c91dcfa75a02221a7cbaaf0b6d514af96d321076d7725c476ca7a530b198369e"
+    },
+    {
+      "path": "Yume/script/p_n003_06.txt",
+      "sha256": "c10307d35920a6bbb04f4836ff313f898dc0910234f66ea333c9189ab2f24088"
+    },
+    {
+      "path": "Yume/script/p_n003_07.txt",
+      "sha256": "5820f30d29a8449bc6351a41c8db7cdac7d7a1489a1f506a680c9621438af7ff"
+    },
+    {
+      "path": "Yume/script/p_n003_08.txt",
+      "sha256": "9a9e521246edfd065f01d1373dd57e252332662ad793a7e5c3b04e81031c45f4"
+    },
+    {
+      "path": "Yume/script/p_n003_09.txt",
+      "sha256": "35e662fbf774e4f99794639954d6ec6cce479d364a99b69256f7b169d1c663c1"
+    },
+    {
+      "path": "Yume/script/p_n003_10.txt",
+      "sha256": "2be7a3beccc45f207776beb61f2a98336d5d11acff75cc36eb621db6630fb6e2"
+    },
+    {
+      "path": "Yume/script/p_n003_11.txt",
+      "sha256": "b92ff4dff0953b7834f2e5d18fd7c264f91bde76e058f564d5685b0c3c352752"
+    },
+    {
+      "path": "Yume/script/p_n003_12.txt",
+      "sha256": "b276e1761497b6ffe3296c1d5b39791dee061e5910eaa3e97bb5a5882641a764"
+    },
+    {
+      "path": "Yume/script/p_n003_13a.txt",
+      "sha256": "308aaae17b8de38aa9980c0984c2f5851c1b1338817082584d91cf5329bc8c8b"
+    },
+    {
+      "path": "Yume/script/p_n003_13b.txt",
+      "sha256": "54949a2211fb970cca4590c83a501011062dfe4c496a509b4894d93a7b4d6458"
+    },
+    {
+      "path": "Yume/script/p_n003_13c.txt",
+      "sha256": "12d8693425e7370ed79151dd02e6256a990d8252ee1c819ce10bd637e2d2a473"
+    },
+    {
+      "path": "Yume/script/p_n003_14.txt",
+      "sha256": "de99910ee0886e373f78804d4a1c3ba8ede6c8f65ad62dcc6e0e5cb11c41caf4"
+    },
+    {
+      "path": "Yume/script/p_n003_15a.txt",
+      "sha256": "ab4a8f74df0ac4e6d8aca23e0be487c82efb6535d4782d459f3c75160f2f3d56"
+    },
+    {
+      "path": "Yume/script/p_n003_15b.txt",
+      "sha256": "1d3a90899a5361754a5e630021d2937d8a0f429a9dc12d6ab0eae46c0dd81976"
+    },
+    {
+      "path": "Yume/script/p_n003_15c.txt",
+      "sha256": "6607e885b5a3568981a147477be34b1ce3db97e3ba2a7f6d1d0e8b683cfe2d7f"
+    },
+    {
+      "path": "Yume/script/p_new_game.txt",
+      "sha256": "7350e1995ad5553de3acda4fe1e67c83b151ae3f41ca5406c0e4dbafa6a3eed9"
+    },
+    {
+      "path": "Yume/script/p_quit_game.txt",
+      "sha256": "71693143f283134d2afe19ba0b3e91566cdd3fd4fd3c626faa1b6704c109efea"
+    },
+    {
+      "path": "Yume/script/p_start.txt",
+      "sha256": "6fe87b127a4f36857ec646dfda6161e97fc4cf75d9efbbf85c08da04ef8de85a"
+    },
+    {
+      "path": "Yume/script/p_t001_01.txt",
+      "sha256": "93cb721ad9a74c7f2909667f4ab6755b61c99c62c4cbe2df409c830fc8838a2d"
+    },
+    {
+      "path": "Yume/script/p_t001_02a.txt",
+      "sha256": "59b62681172170bfcc876f34dbf15defc82a2e0d0f0753cd53ebc8a9b6d871a4"
+    },
+    {
+      "path": "Yume/script/p_t001_02b.txt",
+      "sha256": "53793ed306bafbf44ff95b6878bce7356bddf9d160a82b6309dea864991bf1f7"
+    },
+    {
+      "path": "Yume/script/p_t001_02c.txt",
+      "sha256": "d72bfdd87d98063556a493636f9687c1bac354d7b79b3a67d36a8199ad936492"
+    },
+    {
+      "path": "Yume/script/p_t001_02d.txt",
+      "sha256": "ea94bf5acc978761f788db14361750c5c0de62c9ab68d71d1ba166d3a0686e96"
+    },
+    {
+      "path": "Yume/script/p_t001_03a.txt",
+      "sha256": "b01e966323eb5d6cf2e89a1f76a12504a089e44df8f37c55a4805ac5ce3dde44"
+    },
+    {
+      "path": "Yume/script/p_t001_03b.txt",
+      "sha256": "50c0babb284ea48c1bff4fe79928cf9ced190efc1649cb9eae154993a31ab4be"
+    },
+    {
+      "path": "Yume/script/p_t001_03c.txt",
+      "sha256": "239a9f9197665b0118b94a2f11eb888a2cb657a35530fd8acb2de0f15edf1346"
+    },
+    {
+      "path": "Yume/script/p_t001_03d.txt",
+      "sha256": "102fd2b4c4444cc027fa4e1e0062c0da931dd10a6bdb51ef2398a28da4f92eb0"
+    },
+    {
+      "path": "Yume/script/p_t001_04a.txt",
+      "sha256": "ae5981b04e14d4d3b4e1b1d779b5b106af614e52cc1d512a17237ea3028bb461"
+    },
+    {
+      "path": "Yume/script/p_t001_04b.txt",
+      "sha256": "bfa316a3a27eadc6faec01f5c2fc89e56041dd93f85d7d8de2e3d5379bdb8413"
+    },
+    {
+      "path": "Yume/script/p_t001_04c.txt",
+      "sha256": "46819680c7072bfc190ae0cb63fad9541968b5b458d540c050b6b3eebc37fdf7"
+    },
+    {
+      "path": "Yume/script/p_t001_04d.txt",
+      "sha256": "c45af320b8d75d4d54cfc1ed5494b0d2fa75a088e9320b9621fce83d260ec0d4"
+    },
+    {
+      "path": "Yume/script/p_t001_05a.txt",
+      "sha256": "18600ab70736a97a8bdea3f7cfe596d9a18231fd3b1905e905a007bbe5014b11"
+    },
+    {
+      "path": "Yume/script/p_t001_05b.txt",
+      "sha256": "f84d076b465ce30b6bbb0d34df3ca2f66079af4962e6ea28fc17c91664ecae38"
+    },
+    {
+      "path": "Yume/script/p_t001_05c.txt",
+      "sha256": "57fca2300697ee4fbf1fd942e810c15ae3bdc74a21cea43c67e91750ea5abcfa"
+    },
+    {
+      "path": "Yume/script/p_t001_05d.txt",
+      "sha256": "47a6d489f45d6949d33efc280046f85be24ddf6b3834ade72e27a7e8999fa125"
+    },
+    {
+      "path": "Yume/script/p_t001_05e.txt",
+      "sha256": "01d35b850072adaf2de7460c6dd2f8963f12f2e9150f664412b1424d1393fd21"
+    },
+    {
+      "path": "Yume/script/p_t001_05f.txt",
+      "sha256": "45b486b9a1b0c63e21d285a4f6adaa0e7d4097566a53a0c034ea35b6342b5d27"
+    },
+    {
+      "path": "Yume/script/p_t001_05g.txt",
+      "sha256": "bed9a2effc121505041a0557f3c7b3ea26af80929432841529efc8eb41ed1b02"
+    },
+    {
+      "path": "Yume/script/p_t001_06a.txt",
+      "sha256": "40419e4524d1f7768b0ccad7b713b86d51112fe2b4667dc4a7068ca9c273aa0d"
+    },
+    {
+      "path": "Yume/script/p_t001_06b.txt",
+      "sha256": "65eaba8f1cb2f1eaab1e41addc6f46efd4a14f9590b55979cc4db25f17a22e51"
+    },
+    {
+      "path": "Yume/script/p_t001_06c.txt",
+      "sha256": "22c69836b91f50bcdd6aa12cb938d8a66e73ea54ab3f2c9ced4deed50797a7ac"
+    },
+    {
+      "path": "Yume/script/p_t001_07a.txt",
+      "sha256": "0a9eb8b948f34203f11ec50ea81e175aa6947620e8ed368f8b8c4acbc9da017f"
+    },
+    {
+      "path": "Yume/script/p_t001_07b.txt",
+      "sha256": "f27d5505e1c17f5b26a3bd136b5feed688cc12cd3843b511cda18b86b83bb21e"
+    },
+    {
+      "path": "Yume/script/p_t001_07c.txt",
+      "sha256": "ceb3e26c381d0dbfbd4a84644349e11914a4cb55980e75e9cbc196160018bbfa"
+    },
+    {
+      "path": "Yume/script/p_t001_07d.txt",
+      "sha256": "c7e63e010d7bc9e64321b67503deb63ae1251df2a651fd2098d695046e130168"
+    },
+    {
+      "path": "Yume/script/p_t001_07e.txt",
+      "sha256": "4f14dd90bd4e1650db807c9cf3fc2dc391edbbdcd35711a255466615f80dc2e0"
+    },
+    {
+      "path": "Yume/script/p_t001_07f.txt",
+      "sha256": "23b51e77f2c492e89738b5832caf7fb3c886912d8bc9abf1422747e54ae3d8c5"
+    },
+    {
+      "path": "Yume/script/p_t001_08a.txt",
+      "sha256": "1f4a5c3c48633cd3da73791003b5874f15c6cd55671d5e340b5d680b018db8b9"
+    },
+    {
+      "path": "Yume/script/p_t001_08b.txt",
+      "sha256": "93f611ce6f16afaa152916b26acaaa503d8a17d879654e32268d58be51746ebf"
+    },
+    {
+      "path": "Yume/script/p_t001_08c.txt",
+      "sha256": "3a458e7daa1a5460b900cf88a5bcd2f27b2f9afc4ea1a21141c04bca58cc14f7"
+    },
+    {
+      "path": "Yume/script/p_t001_08d.txt",
+      "sha256": "df08c377906f89dd2b285068b5cf0d48138bfaea50b1362deac038b9a99ec94e"
+    },
+    {
+      "path": "Yume/script/p_t001_08e.txt",
+      "sha256": "5abdec5c38bfcbef88e912e7b3cb560cde9e918e74ef2bdad0847979fc08570e"
+    },
+    {
+      "path": "Yume/script/p_t001_08f.txt",
+      "sha256": "b574ca8f98d0b1831c587ac2ead815ed5968c3b7a328e3e65fca60cb42eff57e"
+    },
+    {
+      "path": "Yume/script/p_t001_09a.txt",
+      "sha256": "ad903e9f6dd6d7bfbe0969087a0db4d87e210b22ba4d0c9b24702f33639241eb"
+    },
+    {
+      "path": "Yume/script/p_t001_09b.txt",
+      "sha256": "52e46cde0e04f231de91ca78c52b6cd56c4bc6463c48c698b174f92fb93c6061"
+    },
+    {
+      "path": "Yume/script/p_t001_09c.txt",
+      "sha256": "b3c04289105bb50d82e3740e185d3b8dce8170bd8a82ea204ae7f4c191d5e8d7"
+    },
+    {
+      "path": "Yume/script/p_t001_09d.txt",
+      "sha256": "dace0593fadca04813ffdc6c76805cce267e2028b139607af81c0565eb8e44f5"
+    },
+    {
+      "path": "Yume/script/p_t001_09e.txt",
+      "sha256": "4ee314b0deb8e328dc290b80c4aeb78c19c2f23bf36c12768e8eda8f36daa158"
+    },
+    {
+      "path": "Yume/script/p_t001_09f.txt",
+      "sha256": "655473ad4aef8fbe619d9194ae9da64dfe406998c4c3b139644c2f251dbb20f5"
+    },
+    {
+      "path": "Yume/script/p_t001_09g.txt",
+      "sha256": "04f7d7348dbcabf338f553805bc817e34b8fdfe8291a8cb44ecdc5722ba5b36b"
+    },
+    {
+      "path": "Yume/script/p_t001_10a.txt",
+      "sha256": "c93133ea3bb03c08b243be7826f17535f798962d267db0ccb87ed3375224cdfe"
+    },
+    {
+      "path": "Yume/script/p_t001_10b.txt",
+      "sha256": "e72a24d705ce146e80248208f4987d4dd52ca12223a1906b2bb8fd19365eb05a"
+    },
+    {
+      "path": "Yume/script/p_t001_10c.txt",
+      "sha256": "db7c3cabc50897f85461c7f39da1db906f6d36897fab8a87f41b5482b5ab016a"
+    },
+    {
+      "path": "Yume/script/p_t001_10d.txt",
+      "sha256": "2995583482437794d9afdb95d351694d3a0f3aafb5511973eda88f8ffef2bb7d"
+    },
+    {
+      "path": "Yume/script/p_t001_11a.txt",
+      "sha256": "a724079146d6e03613c854828d304d624f1b3ada4377b99ab6ec95f72a339e8d"
+    },
+    {
+      "path": "Yume/script/p_t001_11b.txt",
+      "sha256": "935b4f322cab9b944eb2bd0773f474a30b303d89e13163f2d4eaa6ce22dead03"
+    },
+    {
+      "path": "Yume/script/p_t001_11c.txt",
+      "sha256": "27f5da04d65767f5a5c0d5a2fa51cc6712e4a51e152329498521bb3187c27d8c"
+    },
+    {
+      "path": "Yume/script/p_t001_11d.txt",
+      "sha256": "8085ca19f120bdd713c0cf4dceddf26cd492bf892798bcce3aa0445b061d01fc"
+    },
+    {
+      "path": "Yume/script/p_t001_11e.txt",
+      "sha256": "1e27db2a537dd4eaf0aa148c0151c61e23368f30fd1a2611a8cc8e07eab25666"
+    },
+    {
+      "path": "Yume/script/p_t001_11f.txt",
+      "sha256": "182f70aa8989f8ac582f6dc4ed30ff19780ee3bff571eb18278f1ea4e7b9aec2"
+    },
+    {
+      "path": "Yume/script/p_t001_11g.txt",
+      "sha256": "12b2f6a041a78a2ab87ba8d66c08d8690fb35dee9ab3ff1840685577cb9406b9"
+    },
+    {
+      "path": "Yume/script/p_t001_11h.txt",
+      "sha256": "8fc1795bf13c66534282cfeb326600c2a3af5cb67953b5b68a4fe8c9e4e2e862"
+    },
+    {
+      "path": "Yume/script/p_t001_12a.txt",
+      "sha256": "2d07357cb6fa19207d36d5d3a0a74926adeed4d00edf2bcc46d9c0b6da0b14e4"
+    },
+    {
+      "path": "Yume/script/p_t001_12b.txt",
+      "sha256": "58e2dae0ed6c670e95ca7b1ca82716b40028f9a2cbcf68dc4cdd8ca4354f1222"
+    },
+    {
+      "path": "Yume/script/p_t001_12c.txt",
+      "sha256": "23c76615a25abff6faba9bd098bfca6ce56a7baf8243a8a77dfb451915f16ff9"
+    },
+    {
+      "path": "Yume/script/p_t001_12d.txt",
+      "sha256": "3f1acd13a8280598502106e80139b3ef91f5acfb6e9a3990d45a9b6973c632eb"
+    },
+    {
+      "path": "Yume/script/p_t001_12e.txt",
+      "sha256": "0ceae1d0e8cbfadc00953d79d7c42a8670f7edcda2f09fd5f890f80ff55d6866"
+    },
+    {
+      "path": "Yume/script/p_t001_12f.txt",
+      "sha256": "a99d561fe8dea9411863252170c995b9aa2551db91a93ffb3ed72eeb2488d515"
+    },
+    {
+      "path": "Yume/script/p_t001_12g.txt",
+      "sha256": "42feb41c48dae3af178a81447c97846dedd216385161b5dd8c2cd627dda9387a"
+    },
+    {
+      "path": "Yume/script/p_t001_12h.txt",
+      "sha256": "58c1c36e4add8272425820d3a6033e134df226ff6784c3df7a5795db869df4dd"
+    },
+    {
+      "path": "Yume/script/p_t001_12i.txt",
+      "sha256": "047d787ffe9d5ae7012d7441a2610d0d52bd9be21c6bfc813f6a2b3ffea75096"
+    },
+    {
+      "path": "Yume/script/p_t001_12k.txt",
+      "sha256": "38da83f48f21a96130c5c3744c4153086a212e15d7539c50350f6da92e055df4"
+    },
+    {
+      "path": "Yume/script/p_t001_13.txt",
+      "sha256": "197c1918ac27f51e2b81cf3fa191273b77bc6854f8b178c16620add1fa238674"
+    },
+    {
+      "path": "Yume/script/p_title_menu.txt",
+      "sha256": "50ca45d727269d97f222a209698d45bb2df0b670c816f202e65789adb16b3f5e"
+    },
+    {
+      "path": "Yume/script/quit.txt",
+      "sha256": "d2c83ef6fd9482d66e59e722e14265e1ac32adc52a4ab088c7081d469d26bd25"
+    },
+    {
+      "path": "Yume/script/start.txt",
+      "sha256": "7e62967f4c61bc67093e765d6512af7c2500bf51a33eeef40b4fe8559f0cdc76"
+    }
+  ],
+  "fonttools": "4.61.1",
+  "modifications": [
+    "Unicode subset to full GB2312 plus general punctuation/kana/fullwidth, CPyMO UI and original Naru and Yume scripts",
+    "hint removal",
+    "layout removal",
+    "CFF desubroutinization",
+    "family and PostScript renaming",
+    "fixed timestamps"
+  ],
+  "install_path": "C:/Data/CPyMO/fonts/default.otf",
+  "memory_policy": "One font buffer shared across game selection and game changes; no per-game copies required."
+}

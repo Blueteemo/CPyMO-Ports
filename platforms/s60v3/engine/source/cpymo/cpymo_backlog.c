@@ -1,0 +1,376 @@
+#include "cpymo_prelude.h"
+#include "cpymo_backlog.h"
+#include "cpymo_engine.h"
+#include "cpymo_list_ui.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stddef.h>
+#include <assert.h>
+#ifdef S60V3
+#include "../cpymo-backends/sdl1/cpymo_s60_text_metrics.h"
+#endif
+
+#ifndef CPYMO_BACKLOG_MAX_RECORDS
+#define CPYMO_BACKLOG_MAX_RECORDS 64
+#endif
+
+typedef struct cpymo_backlog_record {
+	bool owning_name;
+	cpymo_backend_text name, text_render;
+	char vo_filename[32];
+	char *text;
+	float font_size;
+#ifdef S60V3
+	float text_ink[4];
+#endif
+
+#ifdef ENABLE_TEXT_EXTRACT
+	char *name_str;
+#endif
+} cpymo_backlog_record;
+
+error_t cpymo_backlog_init(cpymo_backlog *b)
+{
+	b->records = (cpymo_backlog_record *)malloc(CPYMO_BACKLOG_MAX_RECORDS * sizeof(b->records[0]));
+	if (b->records == NULL) return CPYMO_ERR_OUT_OF_MEM;
+	b->next_record_to_write = 0;
+	b->pending_vo_filename[0] = '\0';
+	b->owning_name = false;
+	b->pending_name = NULL;
+
+#ifdef ENABLE_TEXT_EXTRACT
+	b->pending_name_str = NULL;
+#endif
+
+	for (size_t i = 0; i < CPYMO_BACKLOG_MAX_RECORDS; i++) {
+		b->records[i].vo_filename[0] = '\0';
+		b->records[i].owning_name = false;
+		b->records[i].name = NULL;
+		b->records[i].text = NULL;
+		b->records[i].text_render = NULL;
+
+#ifdef ENABLE_TEXT_EXTRACT
+		b->records[i].name_str = NULL;
+#endif
+	}
+
+	return CPYMO_ERR_SUCC;
+}
+
+static void cpymo_backlog_record_clean(cpymo_backlog_record *rec)
+{
+	if (rec->owning_name && rec->name) {
+		cpymo_backend_text_free(rec->name);
+
+#ifdef ENABLE_TEXT_EXTRACT
+		if (rec->name_str) free(rec->name_str);
+#endif
+	}
+
+	if (rec->text_render) cpymo_backend_text_free(rec->text_render);
+	rec->text_render = NULL;
+
+	if (rec->text) free(rec->text);
+	rec->text = NULL;
+
+	rec->owning_name = false;
+	rec->name = NULL;
+	rec->vo_filename[0] = '\0';
+
+#ifdef ENABLE_TEXT_EXTRACT
+	rec->name_str = NULL;
+#endif
+}
+
+void cpymo_backlog_free(cpymo_backlog *b)
+{
+	if (b->owning_name && b->pending_name) {
+		cpymo_backend_text_free(b->pending_name);
+
+#ifdef ENABLE_TEXT_EXTRACT
+		if (b->pending_name_str) free(b->pending_name_str);
+#endif
+	}
+
+	for (size_t i = 0; i < CPYMO_BACKLOG_MAX_RECORDS; i++) {
+		cpymo_backlog_record *rec = &b->records[i];
+		cpymo_backlog_record_clean(rec);
+	}
+
+	free(b->records);
+}
+
+void cpymo_backlog_record_write_vo(cpymo_backlog *b, cpymo_str vo)
+{
+	cpymo_str_copy(
+		b->pending_vo_filename, sizeof(b->pending_vo_filename), vo);
+}
+
+void cpymo_backlog_record_write_name(
+	cpymo_backlog *b, cpymo_backend_text name, cpymo_str name_text)
+{
+	if (b->owning_name && b->pending_name) {
+		cpymo_backend_text_free(b->pending_name);
+#ifdef ENABLE_TEXT_EXTRACT
+		if (b->pending_name_str) free(b->pending_name_str);
+#endif
+	}
+
+	b->owning_name = name == NULL ? false : true;
+	b->pending_name = name;
+
+#ifdef ENABLE_TEXT_EXTRACT
+	b->pending_name_str = 
+		name == NULL ? NULL : cpymo_str_copy_malloc(name_text);
+#endif
+}
+
+error_t cpymo_backlog_record_write_text(
+	cpymo_backlog *b,
+	char *text,
+	float fontsize)
+{
+	cpymo_backlog_record *rec = &b->records[b->next_record_to_write];
+
+	cpymo_backlog_record_clean(rec);
+
+	rec->name = b->pending_name;
+	rec->owning_name = b->owning_name;
+
+#ifdef ENABLE_TEXT_EXTRACT
+	rec->name_str = b->pending_name_str;
+#endif
+
+	b->owning_name = false;
+	rec->text = text;
+	strcpy(rec->vo_filename, b->pending_vo_filename);
+	b->pending_vo_filename[0] = '\0';
+	rec->font_size = fontsize;
+
+	b->next_record_to_write = (b->next_record_to_write + 1) % CPYMO_BACKLOG_MAX_RECORDS;
+	return CPYMO_ERR_SUCC;
+}
+
+#ifdef S60V3
+static bool cpymo_backlog_render_for_row(cpymo_backlog_record *rec,
+	const char *text, float height)
+{
+	float width;
+	if (cpymo_backend_text_create(&rec->text_render, &width,
+			cpymo_str_pure(text), rec->font_size) != CPYMO_ERR_SUCC)
+		return false;
+	cpymo_s60_text_ink(rec->text_render, rec->text_ink);
+	if (rec->text_ink[3] - rec->text_ink[1] <= height)
+		return true;
+
+	cpymo_backend_text_free(rec->text_render);
+	rec->text_render = NULL;
+	return false;
+}
+
+static void cpymo_backlog_fit_row(cpymo_backlog_record *rec, float height, float width)
+{
+	static const char ellipsis[] = "…";
+	if (height <= 0.0f || cpymo_backlog_render_for_row(rec, rec->text, height))
+		return;
+
+	size_t end = strlen(rec->text);
+	char *preview = malloc(end + sizeof(ellipsis));
+	if (!preview) return;
+	/* Drop whole lines until the remaining preview fits in its row. */
+	for (;;) {
+		while (end && rec->text[end - 1] != '\n') --end;
+		if (end) --end;
+
+		size_t last_line = end;
+		while (last_line && rec->text[last_line - 1] != '\n') --last_line;
+
+		size_t tail = end;
+		memcpy(preview, rec->text, end);
+		for (;;) {
+			memcpy(preview + tail, ellipsis, sizeof(ellipsis));
+			if (tail == last_line ||
+				cpymo_backend_text_width(cpymo_str_pure(preview + last_line),
+					rec->font_size) <= width)
+				break;
+			do { --tail; } while (((unsigned char)preview[tail] & 0xc0) == 0x80);
+		}
+		if (cpymo_backlog_render_for_row(rec, preview, height) || !end) break;
+	}
+	free(preview);
+}
+#endif
+
+static void cpymo_backlog_ui_draw_node(const cpymo_engine *e, const void *node_to_draw, float y)
+{
+	const cpymo_backlog_record *rec = &e->backlog.records[
+		cpymo_list_ui_encode_uint_node_dec(node_to_draw)];
+
+	const float font_size = rec->font_size;
+	float x = 0.0f;
+#ifdef S60V3
+	const float row_bottom = y + cpymo_list_ui_row_height(e);
+	x = 8.0f;
+	y += 3.0f;
+#else
+	y += font_size;
+#endif
+	if (rec->name) {
+		float name_y = y;
+#ifdef S60V3
+		float ink[4];
+		cpymo_s60_text_ink(rec->name, ink);
+		name_y -= ink[1];
+		y += ink[3] - ink[1] + 4.0f;
+#else
+		y += font_size;
+#endif
+		cpymo_backend_text_draw(
+			rec->name, x, name_y, cpymo_color_white,
+			1.0, cpymo_backend_image_draw_type_ui_element);
+	}
+
+	if (rec->text_render == NULL) {
+#ifdef S60V3
+		cpymo_backlog_fit_row((cpymo_backlog_record *)rec, row_bottom - y - 3.0f,
+			(float)e->gameconfig.imagesize_w - 2.0f * x);
+#else
+		float w;
+		cpymo_backlog_record *rec_mut = (cpymo_backlog_record *)rec;
+		error_t err = cpymo_backend_text_create(
+			&rec_mut->text_render, 
+			&w, 
+			cpymo_str_pure(rec->text), 
+			font_size);
+		if (err != CPYMO_ERR_SUCC)
+			rec_mut->text_render = NULL;
+#endif
+	}
+
+	if (rec->text_render) {
+#ifdef S60V3
+		y -= rec->text_ink[1];
+#endif
+		cpymo_backend_text_draw(
+			rec->text_render, 
+			x, y,
+			cpymo_color_white, 
+			1, 
+			cpymo_backend_image_draw_type_ui_element);
+	}
+}
+
+static error_t cpymo_backlog_ui_ok(struct cpymo_engine *e, void *selected)
+{
+	const cpymo_backlog_record *rec = &e->backlog.records[
+		cpymo_list_ui_encode_uint_node_dec(selected)];
+	if (rec->vo_filename[0]) {
+		return cpymo_audio_vo_play(e, cpymo_str_pure(rec->vo_filename));
+	}
+
+	return CPYMO_ERR_SUCC;
+}
+
+static void *cpymo_backlog_ui_get_next(const cpymo_engine *e, const void *ui_data, const void *cur)
+{
+	size_t index = (size_t)cpymo_list_ui_encode_uint_node_dec(cur);
+	if (index) index--;
+	else index = CPYMO_BACKLOG_MAX_RECORDS - 1;
+
+	if (index == e->backlog.next_record_to_write) return NULL;
+	if (e->backlog.records[index].text == NULL) return NULL;
+
+	return cpymo_list_ui_encode_uint_node_enc(index);
+}
+
+static void *cpymo_backlog_ui_get_prev(const cpymo_engine *e, const void *ui_data, const void *cur)
+{
+	size_t index = (size_t)cpymo_list_ui_encode_uint_node_dec(cur);
+	if (index >= CPYMO_BACKLOG_MAX_RECORDS - 1) index = 0;
+	else index++;
+
+	if (index == e->backlog.next_record_to_write) return NULL;
+	if (e->backlog.records[index].text == NULL) return NULL;
+
+	return cpymo_list_ui_encode_uint_node_enc(index);
+}
+
+typedef struct {
+	bool press_key_down_to_close;
+} cpymo_backlog_ui;
+
+static error_t cpymo_backlog_ui_update(cpymo_engine *e, float dt, void *selected)
+{
+	cpymo_backlog_ui *ui = (cpymo_backlog_ui * )cpymo_list_ui_data(e);
+	if (cpymo_backlog_ui_get_prev(e, cpymo_list_ui_data(e), selected) == NULL) {
+		if (CPYMO_INPUT_JUST_RELEASED(e, down)) {
+			if (ui->press_key_down_to_close) cpymo_list_ui_exit(e);
+			else ui->press_key_down_to_close = true;
+		}
+	}
+	else {
+		ui->press_key_down_to_close = false;
+	}
+
+	return CPYMO_ERR_SUCC;
+}
+
+#ifdef ENABLE_TEXT_EXTRACT
+static void cpymo_backlog_ui_extract_text(cpymo_engine *e, size_t index)
+{
+	if (e->backlog.records[index].text) {
+		if (e->backlog.records[index].name_str) {
+			cpymo_engine_extract_text_cstr(
+				e, e->backlog.records[index].name_str);
+			cpymo_engine_extract_text_cstr(e, "\n");
+		}
+		cpymo_engine_extract_text_cstr(e, e->backlog.records[index].text);
+		cpymo_engine_extract_text_submit(e);
+	}
+}
+
+static error_t cpymo_backlog_ui_selection_changed(cpymo_engine *e, void *selected)
+{
+	if (selected) {
+		size_t index = (size_t)cpymo_list_ui_encode_uint_node_dec(selected);
+		cpymo_backlog_ui_extract_text(e, index);
+	}
+	return CPYMO_ERR_SUCC;
+}
+#endif
+
+error_t cpymo_backlog_ui_enter(cpymo_engine *e)
+{
+	cpymo_backlog_ui *ui = NULL;
+
+	size_t first = e->backlog.next_record_to_write;
+	if (first) first--;
+	else first = CPYMO_BACKLOG_MAX_RECORDS - 1;
+
+	error_t err = cpymo_list_ui_enter(
+		e,
+		(void **)&ui,
+		sizeof(cpymo_backlog_ui),
+		&cpymo_backlog_ui_draw_node,
+		&cpymo_backlog_ui_ok,
+		&cpymo_ui_empty_deleter,
+		cpymo_list_ui_encode_uint_node_enc(first),
+		&cpymo_backlog_ui_get_next,
+		&cpymo_backlog_ui_get_prev,
+		true,
+		3);
+	CPYMO_THROW(err);
+
+	cpymo_list_ui_set_custom_update(e, &cpymo_backlog_ui_update);
+
+#ifdef ENABLE_TEXT_EXTRACT
+	cpymo_list_ui_set_selection_changed_callback(
+		e, &cpymo_backlog_ui_selection_changed);
+	cpymo_backlog_ui_extract_text(e, first);
+#endif
+
+	ui->press_key_down_to_close = true;
+
+	return CPYMO_ERR_SUCC;
+}
+

@@ -1,0 +1,21 @@
+--- a/sdl_epocvideo_s60v3.inl
++++ b/sdl_epocvideo_s60v3.inl
+@@ -1219,15 +1219,16 @@
+ 	if(Private->iNeedFullRedraw)
+ 	{
+ 		Private->iNeedFullRedraw=EFalse;
++		const TInt lastRow = Min(screenH, 240) - 1;
+ 		if(Private->iSX0Mode & ESX0Flipped)
+ 		{
+-			TRect realRect(i240StartTable[199],i320StartTable[0] , i240StartTable[0]+1,i320StartTable[319]+1 );
++			TRect realRect(i240StartTable[lastRow],i320StartTable[0] , i240StartTable[0]+1,i320StartTable[319]+1 );
+ 			
+ 			Private->iWindowCreator->PutBitmap(Private->EPOC_Bitmap,realRect.iTl,realRect);
+ 		}
+ 		else
+ 		{
+-			TRect realRect(i240StartTable[0],i320StartTable[0] , i240StartTable[199]+1,i320StartTable[319]+1 );
++			TRect realRect(i240StartTable[0],i320StartTable[0] , i240StartTable[lastRow]+1,i320StartTable[319]+1 );
+ 			
+ 			Private->iWindowCreator->PutBitmap(Private->EPOC_Bitmap,TPoint(0,0),realRect);
+ 		}

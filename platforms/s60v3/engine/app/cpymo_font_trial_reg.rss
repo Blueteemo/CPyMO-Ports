@@ -1,0 +1,7 @@
+#include <appinfo.rh>
+UID2 KUidAppRegistrationResourceFile
+UID3 0xe93c60a3
+RESOURCE APP_REGISTRATION_INFO {
+    app_file = "cpymo_font_trial";
+    localisable_resource_file = "\\resource\\apps\\cpymo_font_trial_loc";
+}

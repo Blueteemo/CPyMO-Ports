@@ -1,0 +1,29 @@
+NAME CPTR
+#include <eikon.rh>
+#include <uikon.rh>
+#include <eikon.rsg>
+#include <avkon.rh>
+#include <avkon.rsg>
+RESOURCE RSS_SIGNATURE {}
+RESOURCE TBUF16 { buf=""; }
+RESOURCE EIK_APP_INFO { menubar = r_cpymo_menu; }
+RESOURCE MENU_BAR r_cpymo_menu {
+    titles = { MENU_TITLE { menu_pane = r_cpymo_pane; txt = "CPyMO"; } };
+}
+RESOURCE MENU_PANE r_cpymo_pane {
+    items = { MENU_ITEM { command = EEikCmdExit; txt = "Exit"; } };
+}
+RESOURCE DIALOG r_cpymo_exit_query {
+    flags = EGeneralQueryFlags;
+    buttons = R_AVKON_SOFTKEYS_OK_CANCEL;
+    items = {
+        DLG_LINE {
+            type = EAknCtQuery;
+            id = EGeneralQuery;
+            control = AVKON_CONFIRMATION_QUERY {
+                layout = EConfirmationQueryLayout;
+                label = "";
+            };
+        }
+    };
+}

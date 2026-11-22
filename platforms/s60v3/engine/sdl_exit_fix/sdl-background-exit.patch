@@ -1,0 +1,43 @@
+--- a/src/video/symbian/SDL_epocevents.cpp
++++ b/src/video/symbian/SDL_epocevents.cpp
+@@ -1031,6 +1031,19 @@
+ 
+ CWaitForActivate* gWaitForActive = NULL;
+ 
++#ifdef S60V3
++extern "C" int cpymo_s60_exit_is_requested();
++#endif
++
++static bool KeepWaitingForForeground()
++{
++#ifdef S60V3
++    if (cpymo_s60_exit_is_requested())
++        return false;
++#endif
++    return !gViewVisible;
++}
++
+ CWaitForActivate::CWaitForActivate():CActive(EPriorityStandard)
+ {
+ 	CActiveScheduler::Add(this);
+@@ -1048,9 +1061,9 @@
+ 
+ void CWaitForActivate::RunL()
+ {
+-	if(gViewVisible)
++	if(!KeepWaitingForForeground())
+ 	{
+-        RedrawWindowL(current_video);  
++        if (gViewVisible) RedrawWindowL(current_video);  
+ 		CActiveScheduler::Stop(); 
+ 		delete gWaitForActive;
+ 		gWaitForActive = NULL;
+@@ -1077,7 +1090,7 @@
+ #else
+ 	User::ResetInactivityTime();
+ #endif
+-	if(!gViewVisible)
++	if(KeepWaitingForForeground())
+ 	{
+ 		delete gWaitForActive;
+ 		gWaitForActive = NULL;

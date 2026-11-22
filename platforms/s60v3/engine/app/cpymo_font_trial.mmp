@@ -1,0 +1,36 @@
+TARGET cpymo_font_trial.exe
+TARGETTYPE exe
+UID 0x100039ce 0xe93c60a3
+SOURCEPATH .
+SOURCE launcher.cpp
+SOURCE native_font.cpp
+SOURCE compat.c
+
+SYSTEMINCLUDE \epoc32\include\stdapis
+SYSTEMINCLUDE \epoc32\include
+SYSTEMINCLUDE \epoc32\include\ESDL
+
+MACRO S60V3 OPENC
+STATICLIBRARY cpymo_font_trial_core.lib cpymo_font_trial_backend.lib cpymo_font_trial_mp3.lib ESDL_cpymo.lib
+LIBRARY cone.lib eikcore.lib euser.lib apparc.lib fbscli.lib
+LIBRARY eikcoctl.lib eikctl.lib
+LIBRARY gdi.lib hal.lib bitgdi.lib apgrfx.lib
+LIBRARY mediaclientaudiostream.lib efsrv.lib ws32.lib bafl.lib avkon.lib
+LIBRARY libc.lib libm.lib libpthread.lib
+
+START RESOURCE cpymo_font_trial.rss
+HEADER
+TARGETPATH \resource\apps
+END
+
+START RESOURCE cpymo_font_trial_loc.rss
+TARGETPATH \resource\apps
+END
+
+START RESOURCE cpymo_font_trial_reg.rss
+TARGETPATH \private\10003a3f\apps
+END
+
+EPOCSTACKSIZE 0x00014000
+EPOCHEAPSIZE 0x00100000 0x01000000
+CAPABILITY ReadUserData WriteUserData

@@ -1,0 +1,93 @@
+--- a/Symbian/EBasicApp.cpp
++++ b/Symbian/EBasicApp.cpp
+@@ -1,4 +1,12 @@
+ #include "EBasicApp.h"
++#include <basched.h>
++
++#ifdef S60V3
++#include <avkon.hrh>
++extern "C" int cpymo_s60_handle_selector_end_key();
++extern "C" int cpymo_s60_native_query_open();
++extern "C" int cpymo_s60_selector_mode();
++#endif
+ #ifdef UIQ
+ #include <quartzkeys.h>
+ #endif
+@@ -1283,6 +1291,66 @@
+ void CEBasicAppUi::HandleWsEventL(const TWsEvent& aEvent, CCoeControl* aDestination)
+ {
+ 	TInt type= aEvent.Type();
++#ifdef S60V3
++	// Deliver native query input to Avkon. A softkey can close the dialog
++	// before its release reaches the app UI.
++	static TInt native_softkeys_down = 0;
++	if (type == EEventKeyDown || type == EEventKeyUp)
++	{
++		const TInt scan = aEvent.Key()->iScanCode;
++		const TInt bit = scan == EStdKeyDevice0 ? 1 : scan == EStdKeyDevice1 ? 2 : 0;
++		if (type == EEventKeyDown)
++		{
++			native_softkeys_down &= ~bit;
++			if (cpymo_s60_native_query_open()) native_softkeys_down |= bit;
++		}
++		else if (native_softkeys_down & bit)
++		{
++			native_softkeys_down &= ~bit;
++			if (!cpymo_s60_native_query_open()) return;
++		}
++	}
++	if (cpymo_s60_native_query_open())
++	{
++		CEikAppUi::HandleWsEventL(aEvent, aDestination);
++		return;
++	}
++	// Handle both Avkon's close event and the raw red key before focus can move.
++	if (current_video &&
++	    (type == KAknUidValueEndKeyCloseEvent ||
++	     (type == EEventKeyDown && aEvent.Key()->iScanCode == EStdKeyNo)) &&
++	    cpymo_s60_handle_selector_end_key())
++		return;
++	// The E63 prints 0 on M. Accept that scancode only in the selector.
++	if (current_video && (type == EEventKeyDown || type == EEventKeyUp))
++	{
++		const TInt scan = aEvent.Key()->iScanCode;
++		const TBool letter_zero = (scan == 'M' || scan == 'm') && cpymo_s60_selector_mode();
++		if (scan == '0' || scan == EStdKeyNkp0 || scan == EStdKeyDevice1 || letter_zero)
++		{
++			SDL_keysym key;
++			key.scancode = scan;
++			key.sym = scan == EStdKeyDevice1 ? SDLK_ESCAPE : letter_zero ? SDLK_m : SDLK_0;
++			key.mod = KMOD_NONE;
++			key.unicode = 0;
++			SDL_PrivateKeyboard(type == EEventKeyDown ? SDL_PRESSED : SDL_RELEASED, &key);
++			return;
++		}
++	}
++	// On full keyboards, a Fn-modified key may report 0 only as a character.
++	if (current_video && type == EEventKey && aEvent.Key()->iCode == '0' &&
++		!aEvent.Key()->iRepeats && aEvent.Key()->iScanCode != '0' &&
++		aEvent.Key()->iScanCode != EStdKeyNkp0)
++	{
++		SDL_Event key;
++		SDL_memset(&key, 0, sizeof(key));
++		key.key.type = SDL_KEYDOWN;
++		key.key.state = SDL_PRESSED;
++		key.key.keysym.sym = SDLK_0;
++		SDL_PushEvent(&key);
++		return;
++	}
++#endif
+ #ifdef UIQ3
+ 	CQikAppUi::HandleWsEventL(aEvent,aDestination);
+ #else
+@@ -1342,6 +1410,10 @@
+ #if defined (UIQ) || defined (S80) || defined (S90) || defined (S60)
+ 	iEikonEnv->FsSession().Share(RSessionBase::EExplicitAttach);
+ #endif
++	// AppUi::Exit leaves with KLeaveExit; return it to the outer UI framework.
++	// Swallowing this leave under OPENC leaves a cleaned-up but live process.
++	if (exiterr == KLeaveExit)
++		User::Leave(exiterr);
+ 	SDL_Quit();
+ #ifndef OPENC
+ 	CloseSTDLIB();

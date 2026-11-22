@@ -1,0 +1,43 @@
+--- a/Symbian/SDLSXXView.cpp
++++ b/Symbian/SDLSXXView.cpp
+@@ -247,12 +247,19 @@
+ 	gc.SetBrushColor(KRgbBlack);
+ 	gc.Clear(aRect);
+ #endif
+-	if(current_video != NULL)
++	if(current_video != NULL && current_video->hidden->EPOC_Bitmap != NULL)
+ 	{
+ 		current_video->hidden->iNeedFullRedraw=ETrue;
+ 		TRect realRect( TRect(TPoint(0,0), current_video->hidden->EPOC_DisplaySize));
+ 		gc.BitBlt(current_video->hidden->iVKBOffset, current_video->hidden->EPOC_Bitmap,realRect);
+ 	}
++#ifdef S60V3
++	else
++	{
++		gc.SetBrushColor(KRgbBlack);
++		gc.Clear(aRect);
++	}
++#endif
+ #if defined (S60) || defined (S60V3)
+ 		DrawScreenStatus(gc);
+ #ifdef S60V3
+@@ -270,12 +277,19 @@
+ void CEBasicView::ConstructL()
+ {
+ 	CreateWindowL();
++#ifdef S60V3
++	// Install a full-window background before the new window is shown.
++	Window().SetBackgroundColor(KRgbBlack);
++	SetRect(TRect(TPoint(0,0),iEikonEnv->ScreenDevice()->SizeInPixels()));
++#endif
+ 	ActivateL();
+ #ifdef ADVANCED_POINTERS
+ 	Window().EnableAdvancedPointers();	
+ #endif
+ 	SetFocus(ETrue);
++#ifndef S60V3
+ 	SetRect(TRect(TPoint(0,0),iEikonEnv->ScreenDevice()->SizeInPixels()));
++#endif
+ 	iDsa=CDirectScreenAccess::NewL(iEikonEnv->WsSession(),*iEikonEnv->ScreenDevice(),Window(),*this);
+ 	iDsa->StartL();
+ 	iDsa->Gc()->SetClippingRegion(iDsa->DrawingRegion());
