@@ -29,6 +29,11 @@ error_t cpymo_list_ui_enter(
 
 void cpymo_list_ui_set_viewport_height(struct cpymo_engine *,float);
 
+#ifdef GARLIC_NO_FFMPEG
+#define CPYMO_LIST_UI_SCROLLBAR_GUTTER 16.0f
+void cpymo_list_ui_set_scrollbar(struct cpymo_engine *e, size_t total_rows);
+#endif
+
 void cpymo_list_ui_ignore_key_hold_exit_onetime(struct cpymo_engine *e);
 
 void cpymo_list_ui_set_allow_exit(struct cpymo_engine *e, bool b);

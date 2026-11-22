@@ -179,12 +179,13 @@ static void cpymo_save_ui_draw_node(const cpymo_engine *e, const void *node_to_d
 
 #ifdef GARLIC_NO_FFMPEG
 	const float row = ui->row_height;
+	const float lift = garlic_text_output_pixels(2.0f);
 	const cpymo_color secondary = {210, 217, 226};
 	/* Title, both dialogue lines and date have fixed row-relative baselines. */
 	cpymo_save_preview_draw_text(item->text, ui->margin, y + row * (18.0f / 80.0f),
 		item->is_empty_save ? secondary : cpymo_color_white);
-	cpymo_save_preview_draw_text(item->dialogue[0], ui->margin, y + row * (38.0f / 80.0f), cpymo_color_white);
-	cpymo_save_preview_draw_text(item->dialogue[1], ui->margin, y + row * (56.0f / 80.0f), cpymo_color_white);
+	cpymo_save_preview_draw_text(item->dialogue[0], ui->margin, y + row * (38.0f / 80.0f) - lift, cpymo_color_white);
+	cpymo_save_preview_draw_text(item->dialogue[1], ui->margin, y + row * (56.0f / 80.0f) - lift, cpymo_color_white);
 	cpymo_save_preview_draw_text(item->timestamp, ui->margin, y + row * (73.0f / 80.0f), secondary);
 #else
 	cpymo_backend_text_draw(

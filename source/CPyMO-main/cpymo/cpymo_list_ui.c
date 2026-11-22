@@ -47,6 +47,9 @@ typedef struct cpymo_list_ui {
 
 	float current_y;
 	size_t nodes_per_screen;
+#ifdef GARLIC_NO_FFMPEG
+	size_t scrollbar_rows;
+#endif
 	float mouse_touch_move_y_sum;
 } cpymo_list_ui;
 
@@ -471,6 +474,31 @@ const void *cpymo_list_ui_get_current_selected_const(
 		e, ui->selection_relative_to_cur);
 }
 
+#ifdef GARLIC_NO_FFMPEG
+static void cpymo_list_ui_draw_scrollbar(const cpymo_engine *e, const cpymo_list_ui *ui)
+{
+	if (ui->scrollbar_rows <= ui->nodes_per_screen) return;
+	const size_t last_first = ui->scrollbar_rows - ui->nodes_per_screen;
+	size_t first = 0;
+	const void *node = ui->current_node;
+	while (first < last_first && (node = ui->get_prev(e, ui + 1, node)))
+		++first;
+
+	const float inset = 12.0f;
+	const float track = ui->viewport_height - 2 * inset;
+	if (track <= 0) return;
+	const float height = fminf(track, fmaxf(28.0f,
+		roundf(track * ui->nodes_per_screen / ui->scrollbar_rows)));
+	float rect[] = {e->gameconfig.imagesize_w - 10.0f, inset, 6.0f, track};
+	cpymo_backend_image_fill_rects(rect, 1, cpymo_color_white, 0.20f,
+		cpymo_backend_image_draw_type_ui_element);
+	rect[1] += roundf((track - height) * first / last_first);
+	rect[3] = height;
+	cpymo_backend_image_fill_rects(rect, 1, cpymo_color_white, 0.75f,
+		cpymo_backend_image_draw_type_ui_element);
+}
+#endif
+
 static void cpymo_list_ui_draw(const cpymo_engine *e, const void *ui_data)
 {
 	cpymo_bg_draw(e);
@@ -495,6 +523,10 @@ static void cpymo_list_ui_draw(const cpymo_engine *e, const void *ui_data)
 	if (!is_sliding && !is_sliding_inertia) {
 		xywh[1] = cpymo_list_ui_get_y(e, ui->selection_relative_to_cur);
 		xywh[3] = ui->node_height;
+#ifdef GARLIC_NO_FFMPEG
+		if (ui->scrollbar_rows > ui->nodes_per_screen)
+			xywh[2] = e->gameconfig.imagesize_w - CPYMO_LIST_UI_SCROLLBAR_GUTTER - xywh[0];
+#endif
 		cpymo_backend_image_fill_rects(
 			xywh, 1, cpymo_color_white, 0.5f,
 			cpymo_backend_image_draw_type_ui_element_bg);
@@ -536,6 +568,10 @@ static void cpymo_list_ui_draw(const cpymo_engine *e, const void *ui_data)
 		node = ui->get_next(e, cpymo_list_ui_data_const(e), node);
 		if (node == NULL) break;
 	}
+
+#ifdef GARLIC_NO_FFMPEG
+	cpymo_list_ui_draw_scrollbar(e, ui);
+#endif
 
 	#ifdef __3DS__
 	fill_screen_enabled = true;
@@ -589,6 +625,9 @@ error_t cpymo_list_ui_enter(
 	data->selection_changed = NULL;
 	data->allow_exit_list_ui = true;
 	data->nodes_per_screen = nodes_per_screen;
+#ifdef GARLIC_NO_FFMPEG
+	data->scrollbar_rows = 0;
+#endif
 	data->mouse_touch_move_y_sum = 0;
 	data->just_hold_callback = NULL;
 
@@ -697,3 +736,10 @@ void cpymo_list_ui_set_viewport_height(cpymo_engine *e,float height)
         ui->viewport_height=height;ui->node_height=height/ui->nodes_per_screen;
     }
 }
+
+#ifdef GARLIC_NO_FFMPEG
+void cpymo_list_ui_set_scrollbar(cpymo_engine *e, size_t total_rows)
+{
+	((cpymo_list_ui *)cpymo_ui_data(e))->scrollbar_rows = total_rows;
+}
+#endif

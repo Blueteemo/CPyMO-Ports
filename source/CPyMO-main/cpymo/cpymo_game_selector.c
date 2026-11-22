@@ -136,12 +136,14 @@ static void cpymo_game_selector_item_load_info(cpymo_game_selector_item *item, f
 		error_t err = cpymo_gameconfig_parse_from_file(&game_config, path);
 		if (err != CPYMO_ERR_SUCC) FAIL;
 
-#ifdef ENABLE_TEXT_EXTRACT
+#if defined(ENABLE_TEXT_EXTRACT) || defined(GARLIC_NO_FFMPEG)
         strcpy(item->gametitle_text, game_config.gametitle);
 #endif
+#ifndef GARLIC_NO_FFMPEG
 		cpymo_backend_text_create(&item->gametitle, &item->gametitle_w,
 			cpymo_str_pure(game_config.gametitle), 
 			fontsize);
+#endif
 
 		err = cpymo_assetloader_load_icon(
 			&item->icon, &item->icon_w, &item->icon_h, item->gamedir);
@@ -155,6 +157,40 @@ static void cpymo_game_selector_item_load_info(cpymo_game_selector_item *item, f
 
 	if (path) free(path);
 }
+
+#ifdef GARLIC_NO_FFMPEG
+/* Keep existing line breaks. Only shorten lines that would enter the gutter. */
+static void cpymo_game_selector_create_garlic_title(cpymo_game_selector_item *item,
+	float size, float width)
+{
+	cpymo_str text = cpymo_str_pure(item->gametitle_text);
+	char fitted[sizeof(item->gametitle_text) * 4];
+	if (width > 0 && cpymo_backend_text_width(text, size) > width) {
+		static const char ellipsis[] = "…";
+		char *out = fitted;
+		const char *line = text.begin;
+		while (*line) {
+			const char *next = strchr(line, '\n');
+			size_t length = next ? (size_t)(next - line) : strlen(line);
+			memcpy(out, line, length);
+			if (cpymo_backend_text_width((cpymo_str){out, length}, size) > width) {
+				do {
+					do { --length; } while (length && ((unsigned char)out[length] & 0xc0) == 0x80);
+					memcpy(out + length, ellipsis, sizeof(ellipsis) - 1);
+				} while (length &&
+					cpymo_backend_text_width((cpymo_str){out, length + sizeof(ellipsis) - 1}, size) > width);
+				length += sizeof(ellipsis) - 1;
+			}
+			out += length;
+			if (!next) break;
+			*out++ = '\n';
+			line = next + 1;
+		}
+		text = (cpymo_str){fitted, (size_t)(out - fitted)};
+	}
+	cpymo_backend_text_create(&item->gametitle, &item->gametitle_w, text, size);
+}
+#endif
 
 static cpymo_game_selector_item *cpymo_game_selector_item_remove_invalid(cpymo_game_selector_item *prev, cpymo_game_selector_item *cur)
 {
@@ -249,6 +285,15 @@ static error_t cpymo_game_selector_lazy_init_update(cpymo_engine *e, void *ui_, 
 
 	cpymo_game_selector_item_load_info(data->items, fontsize);
 	data->items = cpymo_game_selector_item_remove_invalid(NULL, data->items);
+#ifdef GARLIC_NO_FFMPEG
+	size_t games = 0;
+	for (cpymo_game_selector_item *item = data->items; item; item = item->next) ++games;
+	const float available = games > data->nodes_per_screen
+		? e->gameconfig.imagesize_w - 28.0f - 3 * fontsize - CPYMO_LIST_UI_SCROLLBAR_GUTTER - 4.0f
+		: 0;
+	for (cpymo_game_selector_item *item = data->items; item; item = item->next)
+		cpymo_game_selector_create_garlic_title(item, fontsize, available);
+#endif
 
 	cpymo_game_selector_item *last_selected = data->items;
 	while (last_selected && data->last_selected_gamedir) {
@@ -293,6 +338,7 @@ static error_t cpymo_game_selector_lazy_init_update(cpymo_engine *e, void *ui_, 
 
 #ifdef GARLIC_NO_FFMPEG
         cpymo_list_ui_set_viewport_height(e,416.0f);
+        cpymo_list_ui_set_scrollbar(e, games);
 #endif
 		cpymo_list_ui_set_allow_exit(e, false);
 		cpymo_list_ui_set_selection_relative_to_cur(e, relative);

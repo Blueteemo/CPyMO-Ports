@@ -12,7 +12,7 @@ typedef struct cpymo_game_selector_item {
 	struct cpymo_game_selector_item *next;
 	struct cpymo_game_selector_item *prev;
 	char *gamedir;
-#ifdef ENABLE_TEXT_EXTRACT
+#if defined(ENABLE_TEXT_EXTRACT) || defined(GARLIC_NO_FFMPEG)
 	char gametitle_text[256];
 #endif
 

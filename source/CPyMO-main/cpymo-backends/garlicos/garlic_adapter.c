@@ -82,6 +82,30 @@ static void garlic_draw_bezel_detail(uint16_t *band, int height,
     }
 }
 
+static unsigned garlic_blend_ink(unsigned base, unsigned ink, unsigned opacity)
+{
+    return (base * (255 - opacity) + ink * opacity + 127) / 255;
+}
+
+static void garlic_draw_bezel_wordmark(uint16_t *band, int height)
+{
+    const int x = (GARLIC_OUTPUT_WIDTH - BEZEL_WORDMARK_W) / 2;
+    const int y = height / 2 - 5;
+    for (int row = 0; row < BEZEL_WORDMARK_H; ++row) {
+        uint16_t *line = band + (size_t)(y + row) * GARLIC_OUTPUT_WIDTH + x;
+        for (int col = 0; col < BEZEL_WORDMARK_W; ++col) {
+            unsigned alpha = bezel_wordmark[row * BEZEL_WORDMARK_W + col];
+            if (!alpha) continue;
+            uint16_t pixel = line[col];
+            unsigned r = pixel >> 11, g = (pixel >> 5) & 63, b = pixel & 31;
+            r = garlic_blend_ink((r << 3) | (r >> 2), 137, alpha);
+            g = garlic_blend_ink((g << 2) | (g >> 4), 145, alpha);
+            b = garlic_blend_ink((b << 3) | (b >> 2), 149, alpha);
+            line[col] = (uint16_t)(((r & 248) << 8) | ((g & 252) << 3) | (b >> 3));
+        }
+    }
+}
+
 static void garlic_draw_bezel_lamp(uint16_t *frame, int height)
 {
     static const uint16_t transmission[] = {
@@ -156,9 +180,7 @@ void garlic_draw_bezel(uint16_t *frame, const garlic_viewport *picture)
             bezel_vent, BEZEL_VENT_W, BEZEL_VENT_H);
     }
     if (bottom_height >= 27)
-        garlic_draw_bezel_detail(bottom, bottom_height,
-            (GARLIC_OUTPUT_WIDTH - BEZEL_PLAQUE_W + 1) / 2, bottom_height / 2 - 8,
-            bezel_plaque, BEZEL_PLAQUE_W, BEZEL_PLAQUE_H);
+        garlic_draw_bezel_wordmark(bottom, bottom_height);
 }
 
 static inline uint16_t rgb565(const uint8_t *p)
