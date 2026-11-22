@@ -144,6 +144,7 @@ fi
 RA_ROOT="${CPYMO_RETROARCH_HOME:-/mnt/mmc/CFW/retroarch}"
 RA_BIN="${CPYMO_RETROARCH_BIN:-$RA_ROOT/retroarch}"
 APPHOME="$APPDIR/CPyMO"
+export CPYMO_STARTUP_IMAGE="$APPHOME/system/startup.png"
 LOGDIR="$APPHOME/logs"
 mkdir -p "$LOGDIR" || exit 46
 LOG="${CPYMO_LOG:-$LOGDIR/launcher.log}"

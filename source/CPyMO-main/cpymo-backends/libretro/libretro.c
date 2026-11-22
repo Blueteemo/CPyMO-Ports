@@ -76,6 +76,11 @@ static bool                           garlic_bezel_enabled;
 static bool                           garlic_pixel_format_supported = false;
 static bool                           garlic_engine_ready = false;
 static bool                           garlic_game_loaded = false;
+static enum {
+    GARLIC_STARTUP_NONE,
+    GARLIC_STARTUP_PRESENT,
+    GARLIC_STARTUP_OPEN_MENU
+} garlic_startup;
 /* Which of the two screens the 180-frame counters describe. The menu and a
  * game are the same "loaded" state to the frontend; this only tells the
  * report, the footer and the tests which one is on screen. */
@@ -898,7 +903,8 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
 
 void retro_deinit(void)
 {
-    if (garlic_game_loaded || garlic_engine_ready || garlic_directory_changed)
+    if (garlic_game_loaded || garlic_engine_ready || garlic_directory_changed ||
+        garlic_startup != GARLIC_STARTUP_NONE)
         retro_unload_game();
 }
 
@@ -1073,6 +1079,40 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     return true;
 }
 
+/* The launcher supplies the optional 320x240 artwork. Submit its frame from
+ * retro_run before scanning the library and loading its font. */
+static bool garlic_open_initial_menu(const char *initial_game)
+{
+    const char *path = getenv("CPYMO_STARTUP_IMAGE");
+    int w, h, components;
+    if (!path || !*path || !stbi_info(path, &w, &h, &components) || w != 320 || h != 240)
+        return garlic_open_menu(garlic_menu_root, initial_game);
+
+    uint8_t *pixels = stbi_load(path, &w, &h, &components, 4);
+    if (!pixels || w != 320 || h != 240) {
+        stbi_image_free(pixels);
+        return garlic_open_menu(garlic_menu_root, initial_game);
+    }
+    for (size_t i = 0; i < (size_t)w * h * 4; i += 4) {
+        uint8_t red = pixels[i];
+        pixels[i] = pixels[i + 2];
+        pixels[i + 2] = red;
+    }
+    if (!garlic_rgb565_frame)
+        garlic_rgb565_frame = malloc(GARLIC_OUTPUT_WIDTH * GARLIC_OUTPUT_HEIGHT *
+            sizeof(*garlic_rgb565_frame));
+    bool ready = garlic_rgb565_frame && garlic_blit_rgb565(garlic_rgb565_frame,
+        GARLIC_OUTPUT_WIDTH * 2, GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT,
+        pixels, (size_t)w * 4, w, h);
+    stbi_image_free(pixels);
+    if (!ready) return garlic_open_menu(garlic_menu_root, initial_game);
+
+    if (initial_game)
+        snprintf(garlic_selected_game, sizeof(garlic_selected_game), "%s", initial_game);
+    garlic_startup = GARLIC_STARTUP_PRESENT;
+    return true;
+}
+
 static void garlic_toast(const char *text);
 
 /* Called only after cpymo_engine_update returns: every active UI, decoder,
@@ -1170,7 +1210,7 @@ bool retro_load_game(const struct retro_game_info *game)
     garlic_save_confirm=(garlic_confirm_key){0};garlic_load_confirm=(garlic_confirm_key){0};
     garlic_drain_buttons = false;
     error_t err;
-    if (garlic_game_loaded || garlic_engine_ready)
+    if (garlic_game_loaded || garlic_engine_ready || garlic_startup != GARLIC_STARTUP_NONE)
         retro_unload_game();
     garlic_pending_game[0] = 0;
     garlic_library_requested = garlic_exit_requested = false;
@@ -1230,7 +1270,7 @@ bool retro_load_game(const struct retro_game_info *game)
                         log_cb(RETRO_LOG_WARN, "getcwd: %s\n", strerror(errno));
                     snprintf(garlic_menu_root, sizeof(garlic_menu_root), "%s",
                              games_root);
-                    if (garlic_open_menu(games_root, NULL)) return true;
+                    if (garlic_open_initial_menu(NULL)) return true;
                 }
             }
             log_cb(RETRO_LOG_ERROR,
@@ -1261,7 +1301,7 @@ bool retro_load_game(const struct retro_game_info *game)
         else strcpy(parent, "/");
         if (garlic_games_dir(getenv(GARLIC_GAMES_DIR_ENV), parent, GARLIC_GAMES_DIR,
                 garlic_menu_root, sizeof(garlic_menu_root)) &&
-            garlic_open_menu(garlic_menu_root, gamedir)) return true;
+            garlic_open_initial_menu(gamedir)) return true;
         log_cb(RETRO_LOG_ERROR, "could not open game library\n");
         retro_unload_game();
         return false;
@@ -1487,6 +1527,21 @@ static void input_update(void)
 
 void retro_run(void)
 {
+    if (garlic_startup == GARLIC_STARTUP_PRESENT) {
+        garlic_startup = GARLIC_STARTUP_OPEN_MENU;
+        video_cb(garlic_rgb565_frame, GARLIC_OUTPUT_WIDTH, GARLIC_OUTPUT_HEIGHT,
+            GARLIC_OUTPUT_WIDTH * 2);
+        return;
+    }
+    if (garlic_startup == GARLIC_STARTUP_OPEN_MENU) {
+        garlic_startup = GARLIC_STARTUP_NONE;
+        if (!garlic_open_menu(garlic_menu_root, garlic_selected_game)) {
+            retro_unload_game();
+            environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
+            return;
+        }
+        garlic_drain_buttons = true;
+    }
     if (!garlic_game_loaded) return;
     static const int samples = 48000 / 60;
     static int16_t audio_buffer[48000 / 60 * 2];
@@ -1655,6 +1710,7 @@ void retro_unload_game(void)
     garlic_rgb565_frame = NULL;
     garlic_first_frame = false;
     garlic_waiting_for_game_frame = false;
+    garlic_startup = GARLIC_STARTUP_NONE;
     garlic_game_loaded = false;
     garlic_screen = GARLIC_SCREEN_NONE;
     if (soft_image.pixels) {
