@@ -1,4 +1,4 @@
-CPyMO CJK Regular — RG35XX v0.24.5
+CPyMO CJK Regular — RG35XX 1.0.0
 
 Base face: Adobe Source Han Sans SC Regular 2.005R
 Official source: https://raw.githubusercontent.com/adobe-fonts/source-han-sans/a4f7cf94edfb9d7ffbdfc4841de276358bd7e0f2/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf

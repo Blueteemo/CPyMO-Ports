@@ -214,7 +214,7 @@ static void polish_library_checks(const char *font_path){
     struct retro_game_info info={root,NULL,0,NULL};CHECK(retro_load_game(&info));retro_run();
     CHECK(garlic_screen==GARLIC_SCREEN_MENU && garlic_library_footer);
     cpymo_backend_text reference;float width,top,bottom,old_top,old_bottom;
-    CHECK(cpymo_backend_text_create(&reference,&width,cpymo_str_pure("CPyMO 0.24.5   A：启动   ↑↓：选择   B：退出"),18)==0);
+    CHECK(cpymo_backend_text_create(&reference,&width,cpymo_str_pure("CPyMO 1.0.0   A：启动   ↑↓：选择   B：退出"),18)==0);
     garlic_text_ink_bounds(reference,&old_top,&old_bottom);garlic_text_ink_bounds(garlic_library_footer,&top,&bottom);
     CHECK(bottom-top>old_bottom-old_top);CHECK(top+444>=416 && bottom+444<464);
     CHECK(((cpymo_backend_text_impl*)garlic_library_footer)->w<608);

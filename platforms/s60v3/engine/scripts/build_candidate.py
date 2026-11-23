@@ -8,7 +8,7 @@ ROOT=Path(__file__).resolve().parents[1]
 R1=Path(os.environ.get('CPYMO_R1_ROOT','/workspace/scratch/3dcdfea37dce/research/s60_trial'))
 SDK=R1/'toolchain/sdk-s60-fp1/epoc32';GCCE=R1/'toolchain/gcce-2005q1c'
 OUT=ROOT/'build';OUT.mkdir(exist_ok=True);(OUT/'logs').mkdir(exist_ok=True)
-PACKAGE_NAME='CPyMO_S60v3_1.0.0_E63'
+PACKAGE_NAME='CPyMO_S60v3_1.0.0'
 FLAGS=['-std=gnu99','-O1','-mthumb','-march=armv5t','-mthumb-interwork','-msoft-float','-fno-unit-at-a-time','-nostdinc','-D__SYMBIAN32__','-D__GCCE__','-D__EPOC32__','-D__MARM__','-D__MARM_ARMV5__','-D__ARMV5__','-D__SUPPORT_CPP_EXCEPTIONS__','-include',str(SDK/'include/gcce/gcce.h'),'-DDISABLE_FFMPEG_AUDIO','-DCPYMO_S60_AUDIO','-DDISABLE_MOVIE','-DS60V3','-DCPYMO_S60_NATIVE_FONT','-DCPYMO_S60_DATA_DIR="C:/Data/CPyMO"','-DOPENC','-DSCREEN_BPP=16','-DEXIT_TO_GAME_SELECTOR','-Dalloca=__builtin_alloca','-DSTBI_NO_THREAD_LOCALS','-I'+str(R1/'cpymo_backend_arm_probe/include'),'-I'+str(SDK/'include/stdapis'),'-I'+str(SDK/'include'),'-I'+str(GCCE/'lib/gcc/arm-none-symbianelf/3.4.3/include')]
 LOG=[]
 def run(label,cmd,cwd=ROOT):
@@ -80,7 +80,7 @@ def main():
  package=ROOT/'package';package.mkdir(exist_ok=True)
  icon=OUT/'cpymo_font_trial_icons.mbm'
  run('launcher-icon',['bash',ROOT/'scripts/build_launcher_icon.sh',ROOT/'assets/app-icon.png',icon])
- expected=[(OUT/'cpymo_font_trial.exe','!:\\sys\\bin\\cpymo_font_trial.exe'),(SDK/'data/z/resource/apps/cpymo_font_trial.rsc','!:\\resource\\apps\\cpymo_font_trial.rsc'),(SDK/'data/z/resource/apps/cpymo_font_trial_loc.rsc','!:\\resource\\apps\\cpymo_font_trial_loc.rsc'),(icon,'!:\\resource\\apps\\cpymo_font_trial_icons.mbm'),(SDK/'data/z/private/10003a3f/apps/cpymo_font_trial_reg.rsc','!:\\private\\10003a3f\\import\\apps\\cpymo_font_trial_reg.rsc'),(ROOT/'assets/fonts/default.otf','C:\\Data\\CPyMO\\fonts\\default.otf'),(ROOT/'assets/fonts/OFL.txt','C:\\Data\\CPyMO\\fonts\\OFL.txt'),(ROOT/'LICENSE_CPyMO','C:\\Data\\CPyMO\\licenses\\CPyMO-GPL3.txt'),(ROOT/'NOTICE.txt','C:\\Data\\CPyMO\\licenses\\NOTICE.txt')]
+ expected=[(OUT/'cpymo_font_trial.exe','!:\\sys\\bin\\cpymo_font_trial.exe'),(SDK/'data/z/resource/apps/cpymo_font_trial.rsc','!:\\resource\\apps\\cpymo_font_trial.rsc'),(SDK/'data/z/resource/apps/cpymo_font_trial_loc.rsc','!:\\resource\\apps\\cpymo_font_trial_loc.rsc'),(icon,'!:\\resource\\apps\\cpymo_font_trial_icons.mbm'),(SDK/'data/z/private/10003a3f/apps/cpymo_font_trial_reg.rsc','!:\\private\\10003a3f\\import\\apps\\cpymo_font_trial_reg.rsc'),(ROOT/'assets/fonts/default.otf','C:\\Data\\CPyMO\\fonts\\default.otf'),(ROOT/'assets/fonts/OFL.txt','C:\\Data\\CPyMO\\fonts\\OFL.txt'),(ROOT/'LICENSE_CPyMO','C:\\Data\\CPyMO\\licenses\\CPyMO-AGPL-3.0.txt'),(ROOT/'NOTICE.txt','C:\\Data\\CPyMO\\licenses\\NOTICE.txt')]
  for font_file in ('story-pixel.ttf', 'WenQuanYi-GPL-2.0.txt', 'WenQuanYi-README.txt',
      'WenQuanYi-AUTHORS.txt', 'story-fusion-12.ttf', 'Fusion-OFL.txt',
      'Fusion-ark-pixel-OFL.txt', 'Fusion-cubic-11-OFL.txt', 'Fusion-galmuri-LICENSE.txt'):

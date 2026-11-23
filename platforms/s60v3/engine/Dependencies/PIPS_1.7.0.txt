@@ -1,10 +1,14 @@
 P.I.P.S. 1.7.0 或更新版本
 CPyMO SISX 依赖外层 UID 0x20013851，最低 1.7.0。若设备上已有适用版本，可直接复用。
-云端先在 Nokia 5320 S60v3 FP2 安装 pips_s60_1_7_ss.sis，再安装当时的 CPyMO 测试包。
+云端在 Nokia 5320d-1（S60v3 FP2）模拟器安装 pips_s60_1_7_ss.sis，正式包的安装与启动验证也使用该依赖。
 
-历史安装包来源
+第三方镜像直接下载原签名 SIS
+https://files.3zet.net/Operation%20Symbian/Libs%20and%20Tools/pips_s60_1_7_SS.sis
+PIPS SIS SHA-256 7ed043e59555390db040dd132f44b8777734b31982accba9f256b1800fb21099
+镜像文件与下面的 Nokia 插件归档中提取的 SIS 字节一致。
+镜像安装包版本为 1.7.5，沿用 Nokia 原签名。如果安装 P.I.P.S. 时提示证书尚未生效或已过期，请将手机日期临时调到 2015 年，装完后再改回当前日期。
+
+Nokia 插件历史归档
 https://archive.org/download/nokia_sdks_n_dev_tools/s60_open_c_cpp_plug_in_v1_7_en.zip
 SHA-256 166b83bde9e632302d2e5e4dcbd80a86144ceb37630034ca696fa80594a821d6
 插件安装后的路径 nokia_plugin/openc/s60opencsis/pips_s60_1_7_ss.sis
-PIPS SIS SHA-256 7ed043e59555390db040dd132f44b8777734b31982accba9f256b1800fb21099
-源归档和旧运行库保留原签名，依赖安装的实机日期要求按设备提示判断。

@@ -1,0 +1,45 @@
+diff --git a/SDL-1.2.14_ag/Symbian/EBasicApp.cpp b/SDL-1.2.14_ag/Symbian/EBasicApp.cpp
+index e7dabb0..859bdbd 100644
+--- a/SDL-1.2.14_ag/Symbian/EBasicApp.cpp
++++ b/SDL-1.2.14_ag/Symbian/EBasicApp.cpp
+@@ -10,7 +10,9 @@
+ #endif
+ 
+ #include <uikon.hrh>
++#ifndef OPENC
+ #include <reent.h>
++#endif
+ #include <eikenv.h>
+ #include <e32keys.h>
+ #include <eikenv.h>
+@@ -1546,7 +1548,9 @@ void CEBasicAppUi::DrawView()
+ 
+ void CEBasicAppUi::DoExit()
+ {
++	#ifndef OPENC
+ 	CloseSTDLIB();
++	#endif
+ 	Exit();
+ }
+ 
+diff --git a/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp b/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp
+index 351928d..d364aa7 100644
+--- a/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp
++++ b/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp
+@@ -6,6 +6,7 @@ TARGET          ESDL.lib
+ TARGETTYPE      lib
+ 
+ MACRO			S60V3
++MACRO			OPENC
+ MACRO			NO_SIGNAL_H
+ // *** General sources
+ 
+@@ -92,7 +93,7 @@ SOURCE		stdlib\SDL_stdlib.c
+ SOURCE		stdlib\SDL_string.c
+ // *** Include paths
+ 
+-SYSTEMINCLUDE	\epoc32\include \epoc32\include\libc \epoc32\include\mmf\plugin
++SYSTEMINCLUDE	\epoc32\include\stdapis \epoc32\include \epoc32\include\mmf\plugin
+ SYSTEMINCLUDE   \epoc32\include\mw
+ SYSTEMINCLUDE   \epoc32\include\platform
+ SYSTEMINCLUDE   \epoc32\include\platform\mw

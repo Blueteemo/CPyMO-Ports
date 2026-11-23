@@ -7,7 +7,7 @@ from pathlib import Path
 import json,struct,zlib,hashlib,sys
 R=Path(sys.argv[1]).resolve()
 expected=json.loads((R/'EXPECTED_PAYLOAD.json').read_text())
-p=R/(sys.argv[2] if len(sys.argv)>2 else 'CPyMO_S60v3_1.0.0_E63.sisx');b=p.read_bytes()
+p=R/(sys.argv[2] if len(sys.argv)>2 else 'CPyMO_S60v3_1.0.0.sisx');b=p.read_bytes()
 def fields(data):
  out=[];o=0
  while o<len(data):

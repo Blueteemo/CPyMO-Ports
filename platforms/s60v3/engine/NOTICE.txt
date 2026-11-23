@@ -1,6 +1,6 @@
 CPyMO S60v3 independent port, 2026.
 CPyMO base commit: 5a746bc72a4a8c127e0aee7deb20bf415c385ae2.
-CPyMO Copyright (c) its respective upstream contributors. GNU GPL v3.
+CPyMO Copyright (c) its respective upstream contributors. GNU Affero General Public License, version 3.
 Symbian SDL 1.2.14_ag Copyright SDL and Symbian SDL contributors. LGPL 2.1.
 stb libraries: upstream authors, public domain/MIT alternatives as in bundled headers.
 minimp3: lieff and contributors, CC0 1.0, see thirdparty license.

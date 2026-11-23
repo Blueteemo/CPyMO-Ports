@@ -583,7 +583,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
     info->need_fullpath = true;
     info->valid_extensions = "txt|/";
-    info->library_version = "0.24.5";
+    info->library_version = "1.0.0";
     info->library_name = "CPyMO";
     info->block_extract = false;
 }
@@ -1067,7 +1067,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     garlic_screen = GARLIC_SCREEN_MENU;
     float footer_width;
     cpymo_backend_text_create(&garlic_library_footer, &footer_width,
-        cpymo_str_pure("CPyMO 0.24.5   A：启动   ↑↓：选择   B：退出"), 19);
+        cpymo_str_pure("CPyMO 1.0.0   A：启动   ↑↓：选择   B：退出"), 19);
     garlic_prof_reset();
     {
         uint64_t now = garlic_micros();
@@ -1196,7 +1196,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=0.24.5 font_steps=72/74 movie=disabled audio=phase-headroom7 ui=centered-layout12\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=1.0.0 font_steps=72/74 movie=disabled audio=phase-headroom7 ui=centered-layout12\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
