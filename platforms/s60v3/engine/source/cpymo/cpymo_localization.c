@@ -111,10 +111,14 @@ const cpymo_localization chs = {
 
 	"未找到游戏",
 	"你需要将游戏放在SD卡中的\"pymogames\"文件夹下，\n并确保路径中只包含英文、数字和下划线。\n",
-	"需为此游戏安装mo2pymo补丁才可以正常进行游戏",
+	"此游戏使用旧版 MO 脚本\n请用 PyMO Legacy Converter 转换",
 	"选项：",
 	&chs_version,
 	"确定要退出游戏吗？"
+#ifdef S60V3
+	, "无法打开视频。\n请确认原视频可在系统播放器中播放。"
+	, "返回"
+#endif
 };
 
 
@@ -175,10 +179,14 @@ const cpymo_localization cht = {
 
 	"未找到遊戲",
 	"你需要將遊戲放在SD卡中的\"pymogames\"資料夾下，\n並確保路徑中只包含英文、數位和底線。 \n",
-	"需為此遊戲安裝mo2pymo補丁才可以正常進行遊戲",
+	"此遊戲使用舊版 MO 腳本\n請用 PyMO Legacy Converter 轉換",
 	"選項：",
 	&cht_version,
 	"確定要退出遊戲嗎？"
+#ifdef S60V3
+	, "無法開啟影片。\n請確認原影片可在系統播放器中播放。"
+	, "返回"
+#endif
 };
 
 STR_I(enu, save_already_save_to, 32, "Already save to slot %d.");
@@ -237,10 +245,14 @@ const cpymo_localization enu = {
 
 	"No games found",
 	"Please make sure folder \"pymogames\" is in SD card root,\nand that you have at least one game in it.",
-	"You need to install mo2pymo patch for this game to play",
+	"This game uses legacy MO scripts.\nUse PyMO Legacy Converter first",
 	"Selection: ",
 	&enu_version,
 	"Are you sure you want to quit the game?"
+#ifdef S60V3
+	, "Could not open the video.\nCheck it in the system player."
+	, "Back"
+#endif
 };
 
 #ifndef CPYMO_LANG

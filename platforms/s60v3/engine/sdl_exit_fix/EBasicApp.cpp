@@ -6,6 +6,8 @@
 extern "C" int cpymo_s60_handle_selector_end_key();
 extern "C" int cpymo_s60_native_query_open();
 extern "C" int cpymo_s60_selector_mode();
+extern "C" int cpymo_s60_movie_active();
+extern "C" void cpymo_s60_movie_note_background();
 #endif
 #ifdef UIQ
 #include <quartzkeys.h>
@@ -250,6 +252,9 @@ void CEBasicAppUi::HandleCommandL(TInt aCommand)
 	switch(aCommand)
 	{
 	case EEikCmdExit:
+#ifdef S60V3
+		if (cpymo_s60_movie_active()) break;
+#endif
 		SDL_Quit();
 		Exit();
 		// Exit here wont work since sdl is running at its own pace..
@@ -1292,6 +1297,29 @@ void CEBasicAppUi::HandleWsEventL(const TWsEvent& aEvent, CCoeControl* aDestinat
 {
 	TInt type= aEvent.Type();
 #ifdef S60V3
+	const bool movie_active = cpymo_s60_movie_active();
+	if (movie_active && type == KAknUidValueEndKeyCloseEvent)
+		return;
+	// The player can return CPyMO to the foreground before its closing key lifts.
+	static TInt movie_keys_down = 0;
+	if (movie_active && type == EEventFocusLost)
+		movie_keys_down = 3;
+	if (type == EEventKey || type == EEventKeyDown || type == EEventKeyUp)
+	{
+		const TInt scan = aEvent.Key()->iScanCode;
+		const TInt bit = scan == EStdKeyDevice1 ? 1 : scan == EStdKeyNo ? 2 : 0;
+		if (bit)
+		{
+			if (type == EEventKeyDown)
+			{
+				movie_keys_down &= ~bit;
+				if (movie_active) movie_keys_down |= bit;
+			}
+			const bool consumed = movie_active || (movie_keys_down & bit);
+			if (type == EEventKeyUp) movie_keys_down &= ~bit;
+			if (consumed) return;
+		}
+	}
 	// Deliver native query input to Avkon. A softkey can close the dialog
 	// before its release reaches the app UI.
 	static TInt native_softkeys_down = 0;
@@ -1564,6 +1592,15 @@ void CEBasicAppUi::ConstructL()
 void CEBasicAppUi::HandleForegroundEventL(TBool aForeground)
 {
 	iView->iForeground=aForeground;
+#ifdef S60V3
+	if (!aForeground && cpymo_s60_movie_active())
+	{
+		cpymo_s60_movie_note_background();
+		SDL_ResetKeyboard();
+		SDL_Event released;
+		while (SDL_PeepEvents(&released, 1, SDL_GETEVENT, SDL_EVENTMASK(SDL_KEYUP)) > 0) {}
+	}
+#endif
 #if defined (S60) || defined (S60V3)
 	CAknAppUi::HandleForegroundEventL(aForeground);
 	

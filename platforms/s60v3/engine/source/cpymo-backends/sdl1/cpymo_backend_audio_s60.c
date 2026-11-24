@@ -339,6 +339,15 @@ void cpymo_backend_audio_free(void)
         CPYMO_S60_TRACE("[S60 audio] output closed: frames=%lu nonzero=%lu concurrent=%lu triple=%lu\n",callback_frames,nonzero_frames,concurrent_frames,triple_frames);
     }
 }
+
+void cpymo_s60_movie_resume_audio(cpymo_engine *e)
+{
+    cpymo_backend_audio_init();
+    cpymo_backend_audio_lock();
+    active_audio = (s60_audio *)e->audio;
+    cpymo_backend_audio_unlock();
+}
+
 const cpymo_backend_audio_info *cpymo_backend_audio_get_info(void) { return device_enabled?&output_info:NULL; }
 void cpymo_backend_audio_lock(void) { if(device_enabled)SDL_LockAudio(); }
 void cpymo_backend_audio_unlock(void) { if(device_enabled)SDL_UnlockAudio(); }

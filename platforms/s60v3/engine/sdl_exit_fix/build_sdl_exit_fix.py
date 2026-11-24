@@ -3,7 +3,7 @@
 from pathlib import Path
 import difflib,hashlib,json,os,shlex,shutil,subprocess
 D=Path(__file__).resolve().parent
-R=Path(os.environ.get('CPYMO_R1_ROOT','/workspace/scratch/3dcdfea37dce/research/s60_trial')).resolve()
+R=Path(os.environ['CPYMO_R1_ROOT']).resolve()
 SDK=R/'toolchain/sdk-s60-fp1/epoc32';GCCE=R/'toolchain/gcce-2005q1c/bin'
 SDL=R/'symbian-sdl-libs/SDL-1.2.14_ag';src=SDL/'Symbian/EBasicApp.cpp'
 view=SDL/'Symbian/SDLSXXView.cpp'
@@ -95,6 +95,55 @@ def main():
 #endif
 #ifdef UIQ3
 \tCQikAppUi::HandleWsEventL(aEvent,aDestination);''')
+ new=new.replace('extern "C" int cpymo_s60_selector_mode();',
+     'extern "C" int cpymo_s60_selector_mode();\n'
+     'extern "C" int cpymo_s60_movie_active();\n'
+     'extern "C" void cpymo_s60_movie_note_background();')
+ exit_command='\tcase EEikCmdExit:\n\t\tSDL_Quit();'
+ assert new.count(exit_command)==1
+ new=new.replace(exit_command, '''\tcase EEikCmdExit:
+#ifdef S60V3
+		if (cpymo_s60_movie_active()) break;
+#endif
+		SDL_Quit();''')
+ close_event='\tTInt type= aEvent.Type();\n#ifdef S60V3'
+ assert new.count(close_event)==1
+ new=new.replace(close_event, close_event+'''
+	const bool movie_active = cpymo_s60_movie_active();
+	if (movie_active && type == KAknUidValueEndKeyCloseEvent)
+		return;
+	// The player can return CPyMO to the foreground before its closing key lifts.
+	static TInt movie_keys_down = 0;
+	if (movie_active && type == EEventFocusLost)
+		movie_keys_down = 3;
+	if (type == EEventKey || type == EEventKeyDown || type == EEventKeyUp)
+	{
+		const TInt scan = aEvent.Key()->iScanCode;
+		const TInt bit = scan == EStdKeyDevice1 ? 1 : scan == EStdKeyNo ? 2 : 0;
+		if (bit)
+		{
+			if (type == EEventKeyDown)
+			{
+				movie_keys_down &= ~bit;
+				if (movie_active) movie_keys_down |= bit;
+			}
+			const bool consumed = movie_active || (movie_keys_down & bit);
+			if (type == EEventKeyUp) movie_keys_down &= ~bit;
+			if (consumed) return;
+		}
+	}''')
+ focus_event='\tiView->iForeground=aForeground;'
+ assert new.count(focus_event)==1
+ new=new.replace(focus_event, focus_event+'''
+#ifdef S60V3
+	if (!aForeground && cpymo_s60_movie_active())
+	{
+		cpymo_s60_movie_note_background();
+		SDL_ResetKeyboard();
+		SDL_Event released;
+		while (SDL_PeepEvents(&released, 1, SDL_GETEVENT, SDL_EVENTMASK(SDL_KEYUP)) > 0) {}
+	}
+#endif''')
  (D/'EBasicApp.cpp').write_text(new)
  (D/'sdl-propagate-normal-exit-leave.patch').write_text(''.join(difflib.unified_diff(old.splitlines(True),new.splitlines(True),fromfile='a/Symbian/EBasicApp.cpp',tofile='b/Symbian/EBasicApp.cpp')))
  (D/'SDLSXXView.cpp').write_text(view.read_text())

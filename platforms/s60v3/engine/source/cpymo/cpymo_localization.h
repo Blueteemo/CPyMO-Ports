@@ -49,6 +49,10 @@ typedef struct {
 	const char *visual_help_selection;
 	error_t (*pymo_version_not_compatible_message)(char **, cpymo_pymo_version);
 	const char *exit_confirm;
+#ifdef S60V3
+	const char *movie_open_failed;
+	const char *legacy_notice_back;
+#endif
 } cpymo_localization;
 
 struct cpymo_engine;

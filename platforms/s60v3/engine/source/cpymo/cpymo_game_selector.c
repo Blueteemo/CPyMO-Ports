@@ -83,13 +83,19 @@ static void cpymo_game_selector_draw_node(const cpymo_engine *e, const void *nod
 static error_t cpymo_game_selector_ok(cpymo_engine *e, void *selected)
 {
 	cpymo_game_selector_item *item = (cpymo_game_selector_item *)selected;
-	char *gamedir = item->gamedir;
-	item->gamedir = NULL;
 #ifdef S60V3
-    /* Do not destroy the active list/update stack inside its own callback. */
+    /* The selector survives a cancelled native warning. Give the deferred
+     * launch its own path, leaving the list item available for re-selection. */
+    if (!item || !item->gamedir) return CPYMO_ERR_SUCC;
+    const size_t bytes = strlen(item->gamedir) + 1;
+    char *gamedir = malloc(bytes);
+    if (!gamedir) return CPYMO_ERR_SUCC;
+    memcpy(gamedir, item->gamedir, bytes);
     cpymo_s60_request_game_start(gamedir);
     return CPYMO_ERR_SUCC;
 #else
+	char *gamedir = item->gamedir;
+	item->gamedir = NULL;
 	cpymo_game_selector *sel = (cpymo_game_selector *)cpymo_list_ui_data(e);
 
 	if (sel->before_init) {

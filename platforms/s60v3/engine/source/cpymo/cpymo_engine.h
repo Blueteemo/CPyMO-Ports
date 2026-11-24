@@ -72,6 +72,14 @@ struct cpymo_engine {
 typedef struct cpymo_engine cpymo_engine;
 
 error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir);
+#ifdef S60V3
+/* Before leaving the list: negative = native unavailable, 0 = back, 1 = continue.
+ * The return value is only meaningful for legacy games. */
+error_t cpymo_engine_s60_read_gameconfig(cpymo_gameconfig *out, const char *gamedir);
+bool cpymo_engine_s60_uses_legacy_script(const cpymo_gameconfig *config);
+error_t cpymo_engine_s60_init_from_list(cpymo_engine *out, const char *gamedir,
+	const cpymo_gameconfig *loaded_config, int legacy_decision);
+#endif
 void cpymo_engine_free(cpymo_engine *engine);
 error_t cpymo_engine_update(cpymo_engine *engine, float delta_time_sec, bool *redraw);
 void cpymo_engine_draw(const cpymo_engine *engine);

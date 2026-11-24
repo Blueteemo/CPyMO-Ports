@@ -7,7 +7,7 @@ from pathlib import Path
 import json,struct,zlib,hashlib,sys
 R=Path(sys.argv[1]).resolve()
 expected=json.loads((R/'EXPECTED_PAYLOAD.json').read_text())
-p=R/(sys.argv[2] if len(sys.argv)>2 else 'CPyMO_S60v3_1.0.0.sisx');b=p.read_bytes()
+p=R/(sys.argv[2] if len(sys.argv)>2 else 'CPyMO_S60v3_1.1.0.sisx');b=p.read_bytes()
 def fields(data):
  out=[];o=0
  while o<len(data):
@@ -54,6 +54,6 @@ for rec in records:
  rows.append({'destination':dest,'operation':op,'options':options,'data_index':index,'bytes':len(payload),'sha256':digest,'matches_predeclared_expected':True})
 assert seen==set(expected_by_dest)
 info_fields=fields(controller_fields[14][:-2]);uid=struct.unpack('<I',info_fields[0][1])[0];assert uid==int(expected['uid'],16)
-version=struct.unpack_from('<3i', dict(info_fields)[4]);assert version==(1,0,0),version
+version=struct.unpack_from('<3i', dict(info_fields)[4]);assert '.'.join(map(str,version))==expected['version'],version
 result={'scope':'Static parser audit of actual signed SISX bytes; not physical-phone SWI/signature/uninstall execution','sisx_file':p.name,'sisx_sha256':hashlib.sha256(b).hexdigest(),'sisx_bytes':len(b),'uid':hex(uid),'version':'.'.join(map(str,version)),'expected_payload_count':len(expected['files']),'actual_payload_count':len(rows),'all_expected_payloads_match':True,'only_install_operations':True,'embedded_packages':0,'conditional_blocks':0,'original_game_roots_owned_by_package':False,'files':rows}
 (R/'PACKED_PAYLOAD_AUDIT.json').write_text(json.dumps(result,indent=2));print(json.dumps({k:v for k,v in result.items() if k!='files'},indent=2))
