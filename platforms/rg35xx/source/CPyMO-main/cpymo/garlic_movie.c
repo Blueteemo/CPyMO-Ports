@@ -6,27 +6,34 @@
 #include "cpymo_prelude.h"
 #if defined(GARLIC_MP3_AUDIO) && defined(GARLIC_EXPERIMENTAL_MOVIE)
 #include "garlic_movie.h"
+#ifdef GARLIC_NATIVE_MOVIE
+#include "client.h"
+#endif
 #include "cpymo_engine.h"
 #include "cpymo_ui.h"
+#include "../cpymo-backends/libretro/garlic_audio_sync.h"
 #include "../cpymo-backends/software/cpymo_backend_software.h"
 #include "../stb/stb_image.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #define MOVIE_MAX_FILE (512u * 1024u * 1024u)
 #define MOVIE_MAX_PACKETS 65536u
 #define MOVIE_MAX_JPEG (2u * 1024u * 1024u)
 typedef struct { uint32_t offset, size; } movie_packet;
 typedef struct {
-    FILE *file;
+    FILE *file, *audio_file;
     cpymo_engine *engine;
     movie_packet *video, *audio;
     size_t nv, na, cv, ca, audio_index, audio_offset, max_jpeg;
     unsigned width, height, rate, scale, streams;
     bool video_header, audio_header, pcm_header, failed, skipped, completed;
-    uint64_t audio_total, video_duration, emitted, underruns;
+    uint64_t audio_total, video_duration, underruns;
+    uint32_t emitted, display_samples;
+    bool audio_failed;
     unsigned char *compressed, *rgb;
     uint32_t *decode_times;
     size_t decoded, dropped, shown;
@@ -104,6 +111,7 @@ static bool scan_chunks(garlic_movie *m, uint32_t begin, uint32_t end,
 static void release_movie(garlic_movie *m)
 {
     if (m->file) fclose(m->file);
+    if (m->audio_file) fclose(m->audio_file);
     free(m->video); free(m->audio); free(m->compressed);
     stbi_image_free(m->rgb); free(m->decode_times);
     memset(m,0,sizeof(*m));
@@ -137,7 +145,9 @@ static void movie_delete(cpymo_engine *e, void *data)
 {
     (void)e;
     garlic_movie *m=data;
+    garlic_audio_lock();
     if (active_movie==m) active_movie=NULL;
+    garlic_audio_unlock();
     qsort(m->decode_times,m->decoded,sizeof(uint32_t),compare_u32);
     uint32_t p95=m->decoded ? m->decode_times[(m->decoded-1)*95/100] : 0;
     char log[512];
@@ -149,22 +159,32 @@ static void movie_delete(cpymo_engine *e, void *data)
         (unsigned long long)(m->decoded?m->decode_total_us/m->decoded:0),p95,m->decode_max_us,
         (unsigned long long)m->max_av_error_us,(unsigned long long)m->underruns,
         sizeof(*m)+(m->cv+m->ca)*sizeof(movie_packet)+m->max_jpeg+
-            m->width*m->height*3u+m->nv*sizeof(uint32_t),m->skipped,m->failed,m->completed);
+            m->width*m->height*3u+m->nv*sizeof(uint32_t),m->skipped,
+            m->failed || m->audio_failed,m->completed);
     garlic_movie_log(log);
     release_movie(m);
 }
 
 static error_t movie_update(cpymo_engine *e,void *data,float dt)
 {
-    (void)dt;
     garlic_movie *m=data;
-    if (m->failed) return CPYMO_ERR_BAD_FILE_FORMAT;
-    if ((e->input.ok && !e->prev_input.ok) || (e->input.cancel && !e->prev_input.cancel)) {
+    if (m->failed || __atomic_load_n(&m->audio_failed, __ATOMIC_ACQUIRE))
+        return CPYMO_ERR_BAD_FILE_FORMAT;
+    if (CPYMO_INPUT_JUST_RELEASED(e, ok) || CPYMO_INPUT_JUST_RELEASED(e, cancel)) {
         m->skipped=true; cpymo_ui_exit(e); return CPYMO_ERR_SUCC;
     }
+    uint64_t emitted=__atomic_load_n(&m->emitted, __ATOMIC_ACQUIRE);
     uint64_t duration=m->video_duration>m->audio_total ? m->video_duration:m->audio_total;
-    if (m->emitted>=duration) { m->completed=true; cpymo_ui_exit(e); return CPYMO_ERR_SUCC; }
-    size_t target=(size_t)(m->emitted*m->rate/((uint64_t)m->scale*48000));
+    /* The frontend can request 2048 samples at once. Keep the video advancing
+       between requests and use the audio clock to bound accumulated drift. */
+    if (m->rgb)
+        m->display_samples += (uint32_t)(dt * 48000.0f + 0.5f);
+    if (m->display_samples > emitted)
+        m->display_samples = (uint32_t)emitted;
+    if (emitted > (uint64_t)m->display_samples + 4096)
+        m->display_samples = (uint32_t)(emitted - 4096);
+    if (m->display_samples>=duration) { m->completed=true; cpymo_ui_exit(e); return CPYMO_ERR_SUCC; }
+    size_t target=(size_t)((uint64_t)m->display_samples*m->rate/((uint64_t)m->scale*48000));
     if (target>=m->nv) target=m->nv-1;
     if (!m->rgb || target!=m->shown) {
         if (m->rgb && target>m->shown+1) m->dropped+=target-m->shown-1;
@@ -172,7 +192,7 @@ static error_t movie_update(cpymo_engine *e,void *data,float dt)
         if (err) { m->failed=true; return err; }
         cpymo_engine_request_redraw(e);
     }
-    uint64_t clock_us=m->emitted*1000000/48000;
+    uint64_t clock_us=emitted*1000000/48000;
     uint64_t pts_us=(uint64_t)m->shown*m->scale*1000000/m->rate;
     if (clock_us>=pts_us && clock_us-pts_us>m->max_av_error_us)
         m->max_av_error_us=clock_us-pts_us;
@@ -191,6 +211,9 @@ static void movie_draw(const cpymo_engine *e,const void *data)
     float w=m->width*scale,h=m->height*scale;
     cpymo_backend_software_image image={0};
     image.w=m->width; image.h=m->height; image.line_stride=m->width*3;
+    /* The decoded pixels are already in their source dimensions. Asset
+       loading's pre-scale must not shrink the source sampling rectangle. */
+    image.source_w=m->width; image.source_h=m->height;
     image.pixel_stride=3; image.r_offset=0; image.g_offset=1; image.b_offset=2;
     image.pixels=m->rgb;
     cpymo_backend_image_draw((rect[2]-w)/2,(rect[3]-h)/2,w,h,&image,0,0,
@@ -199,16 +222,25 @@ static void movie_draw(const cpymo_engine *e,const void *data)
 
 bool garlic_movie_audio(int16_t *dst,size_t frames)
 {
+#ifdef GARLIC_NATIVE_MOVIE
+    if (garlic_native_movie_audio(dst, frames)) return true;
+#endif
+    garlic_audio_lock();
     garlic_movie *m=active_movie;
-    if (!m) return false;
+    if (!m) {
+        garlic_audio_unlock();
+        return false;
+    }
     memset(dst,0,frames*4);
     size_t done=0;
     while (done<frames && m->audio_index<m->na) {
         movie_packet p=m->audio[m->audio_index];
         size_t n=(p.size-m->audio_offset)/4;
         if (n>frames-done) n=frames-done;
-        if (n && !read_at(m->file,p.offset+(uint32_t)m->audio_offset,dst+done*2,n*4)) {
-            m->underruns++; m->failed=true; break;
+        if (n && !read_at(m->audio_file,p.offset+(uint32_t)m->audio_offset,dst+done*2,n*4)) {
+            m->underruns++;
+            __atomic_store_n(&m->audio_failed, true, __ATOMIC_RELEASE);
+            break;
         }
         done+=n; m->audio_offset+=n*4;
         if (m->audio_offset==p.size) { m->audio_index++; m->audio_offset=0; }
@@ -218,21 +250,50 @@ bool garlic_movie_audio(int16_t *dst,size_t frames)
     if (volume>1) volume=1;
     int gain=(int)(volume*4096);
     for (size_t i=0;i<frames*2;i++) dst[i]=(int16_t)((int32_t)dst[i]*gain/4096);
-    m->emitted+=frames;
+    __atomic_add_fetch(&m->emitted, frames, __ATOMIC_RELEASE);
+    garlic_audio_unlock();
     return true;
 }
 
 error_t garlic_movie_play(cpymo_engine *e,cpymo_str name)
 {
     if (active_movie || !name.len || name.len>200) return CPYMO_ERR_INVALID_ARG;
-    /* A format sidecar is an opt-in. Keep legacy gameplay usable when the
-       original codec has no decoder rather than claiming it was played. */
     char *path=NULL;
-    error_t err=cpymo_assetloader_get_fs_path(&path,name,"video","rg35xx.avi",&e->assetloader);
+    error_t err;
+#ifdef GARLIC_NATIVE_MOVIE
+    err=cpymo_assetloader_get_fs_path(&path,name,"video","mp4",&e->assetloader);
+    if (err) return err;
+    if (access(path, R_OK) == 0) {
+        err=garlic_play_native_movie(e, path);
+        free(path);
+        if (err != CPYMO_ERR_UNSUPPORTED) return err;
+    } else {
+        free(path);
+    }
+#endif
+
+    /* Converted AVI sidecars still require a game to opt in. */
+    path=NULL;
+    err=cpymo_assetloader_get_fs_path(&path,cpymo_str_pure("rg35xx-playback"),
+        "video","flag",&e->assetloader);
+    if (err) return err;
+    FILE *flag=fopen(path,"rb");
+    free(path);
+    if (!flag) return CPYMO_ERR_SUCC;
+    fclose(flag);
+
+    if (cpymo_str_equals_str(name, "native_probe"))
+        return garlic_request_native_probe();
+
+    path=NULL;
+    err=cpymo_assetloader_get_fs_path(&path,name,"video","rg35xx.avi",&e->assetloader);
     if (err) return err;
     garlic_movie movie={0};
-    movie.file=fopen(path,"rb"); free(path);
+    movie.file=fopen(path,"rb");
+    if (movie.file) movie.audio_file=fopen(path,"rb");
+    free(path);
     if (!movie.file) { garlic_movie_log("MOVIE missing conversion sidecar; original codec skipped"); return CPYMO_ERR_SUCC; }
+    if (!movie.audio_file) goto bad;
     unsigned char h[12];
     if (fseek(movie.file,0,SEEK_END)) goto bad;
     long length=ftell(movie.file);
@@ -253,8 +314,11 @@ error_t garlic_movie_play(cpymo_engine *e,cpymo_str name)
     garlic_movie *ui=NULL;
     err=cpymo_ui_enter((void **)&ui,e,sizeof(*ui),movie_update,movie_draw,movie_delete);
     if (err) { release_movie(&movie); return err; }
-    *ui=movie; active_movie=ui;
+    *ui=movie;
     cpymo_audio_bgm_stop(e); cpymo_audio_se_stop(e); cpymo_audio_vo_stop(e);
+    garlic_audio_lock();
+    active_movie=ui;
+    garlic_audio_unlock();
     char log[384];
     snprintf(log,sizeof(log),"MOVIE start name=%.*s script=%s line=%zu size=%ux%u rate=%u/%u frames=%zu audio48k=%llu",
         (int)name.len,name.begin,e->interpreter ? e->interpreter->script->script_name : "-",

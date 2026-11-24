@@ -5,10 +5,10 @@ Source toolchain/activate.sh. No original CPyMO objects or archives overwritten.
 from pathlib import Path
 import concurrent.futures,hashlib,json,os,shutil,subprocess,sys
 ROOT=Path(__file__).resolve().parents[1]
-R1=Path(os.environ.get('CPYMO_R1_ROOT','/workspace/scratch/3dcdfea37dce/research/s60_trial'))
+R1=Path(os.environ['CPYMO_R1_ROOT']).resolve()
 SDK=R1/'toolchain/sdk-s60-fp1/epoc32';GCCE=R1/'toolchain/gcce-2005q1c'
 OUT=ROOT/'build';OUT.mkdir(exist_ok=True);(OUT/'logs').mkdir(exist_ok=True)
-PACKAGE_NAME='CPyMO_S60v3_1.0.0'
+PACKAGE_NAME='CPyMO_S60v3_1.1.0'
 FLAGS=['-std=gnu99','-O1','-mthumb','-march=armv5t','-mthumb-interwork','-msoft-float','-fno-unit-at-a-time','-nostdinc','-D__SYMBIAN32__','-D__GCCE__','-D__EPOC32__','-D__MARM__','-D__MARM_ARMV5__','-D__ARMV5__','-D__SUPPORT_CPP_EXCEPTIONS__','-include',str(SDK/'include/gcce/gcce.h'),'-DDISABLE_FFMPEG_AUDIO','-DCPYMO_S60_AUDIO','-DDISABLE_MOVIE','-DS60V3','-DCPYMO_S60_NATIVE_FONT','-DCPYMO_S60_DATA_DIR="C:/Data/CPyMO"','-DOPENC','-DSCREEN_BPP=16','-DEXIT_TO_GAME_SELECTOR','-Dalloca=__builtin_alloca','-DSTBI_NO_THREAD_LOCALS','-I'+str(R1/'cpymo_backend_arm_probe/include'),'-I'+str(SDK/'include/stdapis'),'-I'+str(SDK/'include'),'-I'+str(GCCE/'lib/gcc/arm-none-symbianelf/3.4.3/include')]
 LOG=[]
 def run(label,cmd,cwd=ROOT):
@@ -25,7 +25,13 @@ def main():
  missing = [str(path) for path in required if not path.is_file()]
  if missing:
   sys.exit('Restore the S60v3 FP1 build inputs first:\n' + '\n'.join(missing))
- run('sdl-exit-and-startup',['python3',ROOT/'sdl_exit_fix/build_sdl_exit_fix.py'])
+ sdl_override=os.environ.get('CPYMO_SDL_LIBRARY')
+ if sdl_override:
+  sdl_lib=Path(sdl_override).resolve()
+  if not sdl_lib.is_file():sys.exit('CPYMO_SDL_LIBRARY does not name a file')
+ else:
+  run('sdl-exit-and-startup',['python3',ROOT/'sdl_exit_fix/build_sdl_exit_fix.py'])
+  sdl_lib=ROOT/'sdl_exit_fix/ESDL_cpymo.lib'
  startup=(ROOT/'assets/startup.png').read_bytes()
  # Compile the complete frame into the executable so a stale external splash cannot take precedence.
  rows_of_bytes=('    '+', '.join(f'0x{b:02x}' for b in startup[i:i+16])+','
@@ -67,7 +73,8 @@ def main():
  mad_archive=SDK/'release/armv5/urel/cpymo_font_trial_mp3.lib'
  run('archive-libmad',[GCCE/'bin/arm-none-symbianelf-ar','rs',mad_archive,*mad_objects])
  shutil.copy2(mad_archive,OUT/mad_archive.name)
- shutil.copy2(ROOT/'sdl_exit_fix/ESDL_cpymo.lib',SDK/'release/armv5/urel/ESDL_cpymo.lib')
+ target_sdl=SDK/'release/armv5/urel/ESDL_cpymo.lib'
+ if sdl_lib != target_sdl.resolve():shutil.copy2(sdl_lib,target_sdl)
  run('bldmake',['bldmake','bldfiles'],ROOT/'app')
  run('makefile',['abld','makefile','gcce'],ROOT/'app')
  # Generated SDK makefiles omit static-archive prerequisites; force our ELF/E32 relink.
@@ -91,17 +98,20 @@ def main():
   assert src.is_file(),src
   staged=package/'payload'/src.name;staged.parent.mkdir(exist_ok=True);shutil.copy2(src,staged)
   payload.append({'source':str(staged),'destination':dest,'bytes':staged.stat().st_size,'sha256':hashlib.sha256(staged.read_bytes()).hexdigest()})
- (package/'EXPECTED_PAYLOAD.json').write_text(json.dumps({'version':'1.0.0','uid':'0xe93c60a3','files':payload},indent=2))
- pkg=['; Independent CPyMO S60v3 shared-resource release','&EN','#{"CPyMO"},(0xe93c60a3),1,0,0','%{"CPyMO contributors"}',':"CPyMO contributors"','[0x101F7961],0,0,0,{"S60ProductID"}','(0x20013851),1,7,0,{"P.I.P.S."}']+['"'+i['source']+'"-"'+i['destination']+'"' for i in payload]
+ (package/'EXPECTED_PAYLOAD.json').write_text(json.dumps({'version':'1.1.0','uid':'0xe93c60a3','files':payload},indent=2))
+ pkg=['; Independent CPyMO S60v3 shared-resource release','&EN','#{"CPyMO"},(0xe93c60a3),1,1,0','%{"CPyMO contributors"}',':"CPyMO contributors"','[0x101F7961],0,0,0,{"S60ProductID"}','(0x20013851),1,7,0,{"P.I.P.S."}']+['"'+i['source']+'"-"'+i['destination']+'"' for i in payload]
  (package/'cpymo_font_trial.pkg').write_text('\n'.join(pkg)+'\n')
  unsigned=package/(PACKAGE_NAME+'.sis')
  signed=package/(PACKAGE_NAME+'.sisx')
  run('makesis',['makesis','cpymo_font_trial.pkg',unsigned],package)
- cert=Path(os.environ.get('CPYMO_CANDIDATE_CERT',str(ROOT.parent/'r3/cert_date_fix/cpymo-date-compatible.cer')))
- key=Path(os.environ.get('CPYMO_CANDIDATE_KEY',str(R1/'toolchain/packaging-probe/probe.key')))
+ if os.environ.get('CPYMO_UNSIGNED_ONLY') == '1':
+  print(unsigned)
+  return
+ cert=Path(os.environ['CPYMO_SIGN_CERT']).resolve()
+ key=Path(os.environ['CPYMO_SIGN_KEY']).resolve()
  assert cert.is_file() and key.is_file(),'Supply the signing certificate and key; no private key is distributed.'
  run('signsis',['signsis',unsigned,signed,cert,key])
  run('signature',['signsis','-o',signed])
- report={'scope':'build/link/package only, final runtime validation separate','cpymo_commit':'5a746bc72a4a8c127e0aee7deb20bf415c385ae2','compiled_sources':len(rows),'audio':True,'video':False,'image_scaling':'S60 nearest-neighbor required for legacy 540px UI on 320x240 games','expected_payload_files':len(payload),'artifacts':[{'path':str(p),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in [exe,signed]]}
+ report={'scope':'build/link/package only, final runtime validation separate','cpymo_commit':'5a746bc72a4a8c127e0aee7deb20bf415c385ae2','compiled_sources':len(rows),'audio':True,'video':'Symbian system player','image_scaling':'S60 nearest-neighbor required for legacy 540px UI on 320x240 games','expected_payload_files':len(payload),'artifacts':[{'path':str(p),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in [exe,signed]]}
  (OUT/'result.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 if __name__=='__main__':main()

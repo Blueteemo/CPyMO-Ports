@@ -1,25 +1,7 @@
---- a/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp
-+++ b/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp
-@@ -6,6 +6,7 @@
- TARGETTYPE      lib
- 
- MACRO			S60V3
-+MACRO			OPENC
- MACRO			NO_SIGNAL_H
- // *** General sources
- 
-@@ -92,7 +93,7 @@
- SOURCE		stdlib\SDL_string.c
- // *** Include paths
- 
--SYSTEMINCLUDE	\epoc32\include \epoc32\include\libc \epoc32\include\mmf\plugin
-+SYSTEMINCLUDE	\epoc32\include\stdapis \epoc32\include \epoc32\include\mmf\plugin
- SYSTEMINCLUDE   \epoc32\include\mw
- SYSTEMINCLUDE   \epoc32\include\platform
- SYSTEMINCLUDE   \epoc32\include\platform\mw
---- a/SDL-1.2.14_ag/Symbian/EBasicApp.cpp
-+++ b/SDL-1.2.14_ag/Symbian/EBasicApp.cpp
-@@ -1,2111 +1,2187 @@
+diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/Symbian/EBasicApp.cpp
+--- pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp	2026-10-17 07:42:23.000000000 -0700
++++ sdl-final/SDL-1.2.14_ag/Symbian/EBasicApp.cpp	2026-11-24 10:15:45.760059142 -0800
+@@ -1,2111 +1,2224 @@
 -#include "EBasicApp.h"
 -#ifdef UIQ
 -#include <quartzkeys.h>
@@ -2139,6 +2121,8 @@
 +extern "C" int cpymo_s60_handle_selector_end_key();
 +extern "C" int cpymo_s60_native_query_open();
 +extern "C" int cpymo_s60_selector_mode();
++extern "C" int cpymo_s60_movie_active();
++extern "C" void cpymo_s60_movie_note_background();
 +#endif
 +#ifdef UIQ
 +#include <quartzkeys.h>
@@ -2383,6 +2367,9 @@
 +	switch(aCommand)
 +	{
 +	case EEikCmdExit:
++#ifdef S60V3
++		if (cpymo_s60_movie_active()) break;
++#endif
 +		SDL_Quit();
 +		Exit();
 +		// Exit here wont work since sdl is running at its own pace..
@@ -3425,6 +3412,29 @@
 +{
 +	TInt type= aEvent.Type();
 +#ifdef S60V3
++	const bool movie_active = cpymo_s60_movie_active();
++	if (movie_active && type == KAknUidValueEndKeyCloseEvent)
++		return;
++	// The player can return CPyMO to the foreground before its closing key lifts.
++	static TInt movie_keys_down = 0;
++	if (movie_active && type == EEventFocusLost)
++		movie_keys_down = 3;
++	if (type == EEventKey || type == EEventKeyDown || type == EEventKeyUp)
++	{
++		const TInt scan = aEvent.Key()->iScanCode;
++		const TInt bit = scan == EStdKeyDevice1 ? 1 : scan == EStdKeyNo ? 2 : 0;
++		if (bit)
++		{
++			if (type == EEventKeyDown)
++			{
++				movie_keys_down &= ~bit;
++				if (movie_active) movie_keys_down |= bit;
++			}
++			const bool consumed = movie_active || (movie_keys_down & bit);
++			if (type == EEventKeyUp) movie_keys_down &= ~bit;
++			if (consumed) return;
++		}
++	}
 +	// Deliver native query input to Avkon. A softkey can close the dialog
 +	// before its release reaches the app UI.
 +	static TInt native_softkeys_down = 0;
@@ -3697,6 +3707,15 @@
 +void CEBasicAppUi::HandleForegroundEventL(TBool aForeground)
 +{
 +	iView->iForeground=aForeground;
++#ifdef S60V3
++	if (!aForeground && cpymo_s60_movie_active())
++	{
++		cpymo_s60_movie_note_background();
++		SDL_ResetKeyboard();
++		SDL_Event released;
++		while (SDL_PeepEvents(&released, 1, SDL_GETEVENT, SDL_EVENTMASK(SDL_KEYUP)) > 0) {}
++	}
++#endif
 +#if defined (S60) || defined (S60V3)
 +	CAknAppUi::HandleForegroundEventL(aForeground);
 +	
@@ -4318,8 +4337,9 @@
 +#endif // UIQ3 || UIQ
 +
 +
---- a/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp
-+++ b/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp
+diff -urN pristine/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp sdl-final/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp
+--- pristine/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp	2026-10-17 07:42:23.000000000 -0700
++++ sdl-final/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp	2026-11-24 10:15:45.760109756 -0800
 @@ -1,922 +1,940 @@
 -#include <stdlib.h>
 -#include <stdio.h>
@@ -6183,444 +6203,29 @@
 +#endif
 +#endif
 +
---- a/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp
-+++ b/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp
-@@ -32,7 +32,7 @@
- #include <stdlib.h>
- #include <stdio.h>
- #include <string.h>
--#include <apgwgnam.h>
-+#include <apgwgnam.h>
+diff -urN pristine/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp sdl-final/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp
+--- pristine/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp	2026-10-17 07:42:23.000000000 -0700
++++ sdl-final/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp	2026-11-24 10:15:45.757083353 -0800
+@@ -6,6 +6,7 @@
+ TARGETTYPE      lib
  
- extern "C" {
- #include "SDL_error.h"
-@@ -53,21 +53,21 @@
- #include "SDL_epocvideo.h"
- #include "SDL_epocevents_c.h"
- #include "EBasicApp.h"
--#if !defined UIQ3 && !defined S60V3
--#include <hal.h>
--#endif
--
--#include <coedef.h>
--extern bool gViewVisible;
--
--TInt32 i240StartTable[240];
--TUint16 i320StartTable[320];
--TUint8 i320StepTable[320];
--TInt gScaleXPos[641];
--TInt gScaleYPos[641];
--TInt gScaleStep[641];
--TInt gScaleYStep[641];
--TBool gHeapIsLocked=EFalse;
-+#if !defined UIQ3 && !defined S60V3
-+#include <hal.h>
-+#endif
-+
-+#include <coedef.h>
-+extern bool gViewVisible;
-+
-+TInt32 i240StartTable[240];
-+TUint16 i320StartTable[320];
-+TUint8 i320StepTable[320];
-+TInt gScaleXPos[641];
-+TInt gScaleYPos[641];
-+TInt gScaleStep[641];
-+TInt gScaleYStep[641];
-+TBool gHeapIsLocked=EFalse;
+ MACRO			S60V3
++MACRO			OPENC
+ MACRO			NO_SIGNAL_H
+ // *** General sources
  
- extern "C" void EPOC_CalcStretchFactors(_THIS,TSize aTargetSize);
- 	
-@@ -103,32 +103,32 @@
- 			}		
- 		}
+@@ -92,7 +93,7 @@
+ SOURCE		stdlib\SDL_string.c
+ // *** Include paths
  
--	}
--
--void ClearBackBuffer(_THIS)
--{
--	/* Clear backbuffer */
--#if defined (__WINS__)|| defined (S60) || defined (S80) || defined(S90)||defined(UIQ3)||defined(S60V3)
--	TBool lockedHeap=EFalse;
--	TBitmapUtil lock(Private->EPOC_Bitmap);	
--	if(!gHeapIsLocked)
--	{
--		lock.Begin(TPoint(0,0)); // Lock bitmap heap
--		gHeapIsLocked=ETrue;
--		lockedHeap=ETrue;
--	}
--	TUint16* screenBuffer = (TUint16*)Private->EPOC_Bitmap->DataAddress();
--#else
--	TUint16* screenBuffer = (TUint16*)Private->EPOC_FrameBuffer;
--#endif
--	memset(screenBuffer, 0, Private->EPOC_ScreenSize.iHeight*Private->EPOC_ScreenSize.iWidth*Private->EPOC_BytesPerPixel);
--#if defined (__WINS__) || defined (S60) || defined (S80) || defined(S90) || defined(UIQ3) || defined(S60V3)
--	if(lockedHeap)
--	{
--		lock.End();
--		gHeapIsLocked=EFalse;
--	}
--#endif
-+	}
-+
-+void ClearBackBuffer(_THIS)
-+{
-+	/* Clear backbuffer */
-+#if defined (__WINS__)|| defined (S60) || defined (S80) || defined(S90)||defined(UIQ3)||defined(S60V3)
-+	TBool lockedHeap=EFalse;
-+	TBitmapUtil lock(Private->EPOC_Bitmap);	
-+	if(!gHeapIsLocked)
-+	{
-+		lock.Begin(TPoint(0,0)); // Lock bitmap heap
-+		gHeapIsLocked=ETrue;
-+		lockedHeap=ETrue;
-+	}
-+	TUint16* screenBuffer = (TUint16*)Private->EPOC_Bitmap->DataAddress();
-+#else
-+	TUint16* screenBuffer = (TUint16*)Private->EPOC_FrameBuffer;
-+#endif
-+	memset(screenBuffer, 0, Private->EPOC_ScreenSize.iHeight*Private->EPOC_ScreenSize.iWidth*Private->EPOC_BytesPerPixel);
-+#if defined (__WINS__) || defined (S60) || defined (S80) || defined(S90) || defined(UIQ3) || defined(S60V3)
-+	if(lockedHeap)
-+	{
-+		lock.End();
-+		gHeapIsLocked=EFalse;
-+	}
-+#endif
- }
- 
- /* For debugging */
-@@ -191,7 +191,7 @@
- 
- /* Mouse functions */
- static void EPOC_FreeWMCursor(_THIS, WMcursor *cursor);
--static int EPOC_ShowWMCursor(_THIS, WMcursor *cursor);
-+static int EPOC_ShowWMCursor(_THIS, WMcursor *cursor);
- 
- static WMcursor *EPOC_CreateWMCursor(_THIS, Uint8* /*data*/, Uint8* /*mask*/, int /*w*/, int /*h*/, int /*hot_x*/, int /*hot_y*/);
- /* !! Table for fast conversion from 8 bit to 12/16 bit */
-@@ -264,20 +264,20 @@
- 	device->FreeWMCursor = EPOC_FreeWMCursor;
- 	device->CreateWMCursor = EPOC_CreateWMCursor;
- 	device->ShowWMCursor = EPOC_ShowWMCursor;
--	device->WarpWMCursor = NULL;
-+	device->WarpWMCursor = NULL;
- 
- 	device->InitOSKeymap = EPOC_InitOSKeymap;
- 	device->PumpEvents = EPOC_PumpEvents;
--	device->free = EPOC_DeleteDevice;
--	device->hidden->iEikEnv=CEikonEnv::Static();
--
-+	device->free = EPOC_DeleteDevice;
-+	device->hidden->iEikEnv=CEikonEnv::Static();
-+
- 	return device;
--}
--
--TUint8 MsbToLsb(TUint8 aVal)
--    {
--    TUint lsbValue = ((aVal&1)<<7)|((aVal&2)<<5)|((aVal&4)<<3)|((aVal&8)<<1)|((aVal&16)>>1)|((aVal&32)>>3)|((aVal&64)>>5)|((aVal&128)>>7);
--    return lsbValue;
-+}
-+
-+TUint8 MsbToLsb(TUint8 aVal)
-+    {
-+    TUint lsbValue = ((aVal&1)<<7)|((aVal&2)<<5)|((aVal&4)<<3)|((aVal&8)<<1)|((aVal&16)>>1)|((aVal&32)>>3)|((aVal&64)>>5)|((aVal&128)>>7);
-+    return lsbValue;
-     }
- 
- void MsbToLsbVert(TUint8 aVal, TUint8* aValues, TUint8 aBitToSet)
-@@ -395,7 +395,7 @@
- 	
- 	}
- WMcursor *EPOC_CreateWMCursor(_THIS, Uint8* data, Uint8* mask, int w, int h, int hot_x, int hot_y)
--    {
-+    {
- 	WMcursor* cursor = new WMcursor;
- 	TInt cursorSize = (w*h)/8;	
- 	cursor->iWidth = w;
-@@ -407,29 +407,29 @@
-     }
- 
- void EPOC_FreeWMCursor(_THIS, WMcursor* cursor)
--{
--	if(cursor != NULL)
--	{
--		delete cursor->iCursorPBitmap;
--		cursor->iCursorPBitmap = NULL;
--		delete cursor->iCursorPMask;
-+{
-+	if(cursor != NULL)
-+	{
-+		delete cursor->iCursorPBitmap;
-+		cursor->iCursorPBitmap = NULL;
-+		delete cursor->iCursorPMask;
- 		cursor->iCursorPMask = NULL;	
- 		
- 		delete cursor->iCursorLBitmap;
- 		cursor->iCursorLBitmap = NULL;
--		delete cursor->iCursorLMask;
-+		delete cursor->iCursorLMask;
- 		cursor->iCursorLMask = NULL;
- 		
- 		delete cursor->iCursorLFBitmap;
- 		cursor->iCursorLFBitmap = NULL;
- 		delete cursor->iCursorLFMask;
- 		cursor->iCursorLFMask = NULL;				
--	}
--}
-+	}
-+}
- 
- int EPOC_ShowWMCursor(_THIS, WMcursor *cursor)
--{
--    /* Set the window cursor to our cursor, if applicable */
-+{
-+    /* Set the window cursor to our cursor, if applicable */
-     _this->hidden->iCursor = cursor;
-     if (cursor)
-     {
-@@ -449,96 +449,96 @@
- int GetBpp(TDisplayMode displaymode)
- {
- 	return 16;// TDisplayModeUtils::NumDisplayModeBitsPerPixel(displaymode); 
--}
--
--void EPOC_SetCaption(_THIS, const char * title, const char * /*icon*/)
--{
--	if(title != NULL)
--	{
--		TInt titleLen = strlen(title);
--		HBufC* titleBuffer = HBufC::NewLC(titleLen);
--		TPtrC8 titlePtr((const unsigned char*)title, titleLen);
--		titleBuffer->Des().Copy(titlePtr);
--		CApaWindowGroupName* groupName = CApaWindowGroupName::NewL(Private->iEikEnv->WsSession(), Private->iEikEnv->RootWin().Identifier());
--		CleanupStack::PushL(groupName);	
--		groupName->SetCaptionL(*titleBuffer);
--		groupName->SetWindowGroupName(Private->iEikEnv->RootWin());
--		CleanupStack::PopAndDestroy(2, titleBuffer);
--	}
--}
--
--#if defined  (__WINS__) ||  defined (S60) ||  defined (S80) ||  defined (S90) ||  defined (UIQ3) || defined(S60V3)
--void EPOC_ReconfigureVideo(_THIS)
--{
--    /* Initialise Epoc frame buffer */
--    TDisplayMode displayMode =Private->iEikEnv->ScreenDevice()->DisplayMode();	    
--    /* Create bitmap, device and context for screen drawing */
--	delete Private->EPOC_Bitmap;
--	Private->EPOC_Bitmap = NULL;
--	Private->EPOC_Bitmap = new (ELeave) CWsBitmap(Private->iEikEnv->WsSession());
--	// Not 64K or 4K color mode, try to set 64K
--	if(displayMode != EColor64K && displayMode != EColor4K)
--	{
--		displayMode=EColor64K;; // Also tried to switch to by the view.
--	}
--#if defined (S60)||defined (S60V3) // this needs to be atleast 320x200 to cope	
--#ifdef S60V3
--    Private->EPOC_ScreenSize   =Private->iEikEnv->ScreenDevice()->SizeInPixels();// TSize(256,320);
--	Private->EPOC_DisplaySize = Private->EPOC_ScreenSize;
--	// Must ensure that the height is at least 320 pixels height and 240 width
--	TSize createSize = Private->EPOC_ScreenSize;
--	
--	//if(createSize.iHeight<320)
--	//	createSize.iHeight = 320;
--	
--	/*if(createSize.iWidth<320)
--	{
--		Private->EPOC_ScreenSize.iWidth = 320;
--		createSize.iWidth = 320;
-+}
-+
-+void EPOC_SetCaption(_THIS, const char * title, const char * /*icon*/)
-+{
-+	if(title != NULL)
-+	{
-+		TInt titleLen = strlen(title);
-+		HBufC* titleBuffer = HBufC::NewLC(titleLen);
-+		TPtrC8 titlePtr((const unsigned char*)title, titleLen);
-+		titleBuffer->Des().Copy(titlePtr);
-+		CApaWindowGroupName* groupName = CApaWindowGroupName::NewL(Private->iEikEnv->WsSession(), Private->iEikEnv->RootWin().Identifier());
-+		CleanupStack::PushL(groupName);	
-+		groupName->SetCaptionL(*titleBuffer);
-+		groupName->SetWindowGroupName(Private->iEikEnv->RootWin());
-+		CleanupStack::PopAndDestroy(2, titleBuffer);
-+	}
-+}
-+
-+#if defined  (__WINS__) ||  defined (S60) ||  defined (S80) ||  defined (S90) ||  defined (UIQ3) || defined(S60V3)
-+void EPOC_ReconfigureVideo(_THIS)
-+{
-+    /* Initialise Epoc frame buffer */
-+    TDisplayMode displayMode =Private->iEikEnv->ScreenDevice()->DisplayMode();	    
-+    /* Create bitmap, device and context for screen drawing */
-+	delete Private->EPOC_Bitmap;
-+	Private->EPOC_Bitmap = NULL;
-+	Private->EPOC_Bitmap = new (ELeave) CWsBitmap(Private->iEikEnv->WsSession());
-+	// Not 64K or 4K color mode, try to set 64K
-+	if(displayMode != EColor64K && displayMode != EColor4K)
-+	{
-+		displayMode=EColor64K;; // Also tried to switch to by the view.
-+	}
-+#if defined (S60)||defined (S60V3) // this needs to be atleast 320x200 to cope	
-+#ifdef S60V3
-+    Private->EPOC_ScreenSize   =Private->iEikEnv->ScreenDevice()->SizeInPixels();// TSize(256,320);
-+	Private->EPOC_DisplaySize = Private->EPOC_ScreenSize;
-+	// Must ensure that the height is at least 320 pixels height and 240 width
-+	TSize createSize = Private->EPOC_ScreenSize;
-+	
-+	//if(createSize.iHeight<320)
-+	//	createSize.iHeight = 320;
-+	
-+	/*if(createSize.iWidth<320)
-+	{
-+		Private->EPOC_ScreenSize.iWidth = 320;
-+		createSize.iWidth = 320;
- 	}*/
--
--	Private->EPOC_Bitmap->Create(createSize, displayMode);
--#else // S60
--    Private->EPOC_ScreenSize=TSize(256,320);// TSize(256,320);
--	Private->EPOC_Bitmap->Create(TSize(256,320), displayMode);
--#endif
--#elif defined (S80) || defined (S90)	
--    Private->EPOC_ScreenSize        = Private->iEikEnv->ScreenDevice()->SizeInPixels();
--	Private->EPOC_Bitmap->Create(Private->EPOC_ScreenSize, displayMode);
--#else //UIQ
--    Private->EPOC_ScreenSize  = Private->iEikEnv->ScreenDevice()->SizeInPixels();
-+
-+	Private->EPOC_Bitmap->Create(createSize, displayMode);
-+#else // S60
-+    Private->EPOC_ScreenSize=TSize(256,320);// TSize(256,320);
-+	Private->EPOC_Bitmap->Create(TSize(256,320), displayMode);
-+#endif
-+#elif defined (S80) || defined (S90)	
-+    Private->EPOC_ScreenSize        = Private->iEikEnv->ScreenDevice()->SizeInPixels();
-+	Private->EPOC_Bitmap->Create(Private->EPOC_ScreenSize, displayMode);
-+#else //UIQ
-+    Private->EPOC_ScreenSize  = Private->iEikEnv->ScreenDevice()->SizeInPixels();
-     Private->EPOC_DisplaySize = Private->EPOC_ScreenSize;
--	TSize createSize = Private->EPOC_ScreenSize;
--	if(createSize.iHeight<320)
--		createSize.iHeight = 320;
--#ifndef UIQ3
--	Private->EPOC_ScreenSize.iWidth=Private->EPOC_ScreenSize.iWidth-8;// Reserve lower 8 lines	
--	createSize.iWidth = Private->EPOC_ScreenSize.iWidth;
--#endif
--	Private->EPOC_Bitmap->Create(createSize, displayMode);
--#endif
--	Private->EPOC_DisplayMode	    = displayMode;
--	Private->EPOC_BytesPerPixel	    = ((GetBpp(displayMode)-1) / 8) + 1;
--	Private->EPOC_BytesPerScanLine  = (Private->EPOC_ScreenSize.iWidth) * Private->EPOC_BytesPerPixel;
--	Private->EPOC_ScreenOffset = 0;
--	/* Tell the system that something has been drawn */
--	TRect  rect = TRect(Private->iWindowCreator->Size());
--  	Private->iWindowCreator->Win().Invalidate(rect);
--  	UpdateScaleFactors();
--
--	if(current_video && current_video->screen != NULL) {
--		RedrawWindowL(current_video);
--	}
--}
-+	TSize createSize = Private->EPOC_ScreenSize;
-+	if(createSize.iHeight<320)
-+		createSize.iHeight = 320;
-+#ifndef UIQ3
-+	Private->EPOC_ScreenSize.iWidth=Private->EPOC_ScreenSize.iWidth-8;// Reserve lower 8 lines	
-+	createSize.iWidth = Private->EPOC_ScreenSize.iWidth;
-+#endif
-+	Private->EPOC_Bitmap->Create(createSize, displayMode);
-+#endif
-+	Private->EPOC_DisplayMode	    = displayMode;
-+	Private->EPOC_BytesPerPixel	    = ((GetBpp(displayMode)-1) / 8) + 1;
-+	Private->EPOC_BytesPerScanLine  = (Private->EPOC_ScreenSize.iWidth) * Private->EPOC_BytesPerPixel;
-+	Private->EPOC_ScreenOffset = 0;
-+	/* Tell the system that something has been drawn */
-+	TRect  rect = TRect(Private->iWindowCreator->Size());
-+  	Private->iWindowCreator->Win().Invalidate(rect);
-+  	UpdateScaleFactors();
-+
-+	if(current_video && current_video->screen != NULL) {
-+		RedrawWindowL(current_video);
-+	}
-+}
- #endif
- 
- int EPOC_VideoInit(_THIS, SDL_PixelFormat *vformat)
- {
--    // !!TODO:handle leave functions!
--#if defined UIQ || defined UIQ3 || defined S90
--	Private->iHasMouseOrTouch = ETrue;
--#else
--	Private->iHasMouseOrTouch = EFalse;
-+    // !!TODO:handle leave functions!
-+#if defined UIQ || defined UIQ3 || defined S90
-+	Private->iHasMouseOrTouch = ETrue;
-+#else
-+	Private->iHasMouseOrTouch = EFalse;
- #endif
- 	Private->iOnecallback = new CAsyncCallBack (CActive::EPriorityLow); //Service all the others first and then this	
- 	Private->iWindowCreator=static_cast<CEBasicAppUi*>(Private->iEikEnv->EikAppUi())->View();
-@@ -600,7 +600,7 @@
- 		Private->EPOC_FrameBuffer += 16 * 2;
- #endif
- #else /* defined __WINS__ || S60 || S80||S90 || UIQ3*/
--    EPOC_ReconfigureVideo(_this);  	
-+    EPOC_ReconfigureVideo(_this);  	
- #if defined (S60)||defined (S60V3) // this needs to be atleast 320x200 to cope
- 	Private->iSX0Mode = ESX0Stretched|ESX0Flipped;
- 	Private->iCurrentChar=65; // Start of with an A
-@@ -671,11 +671,11 @@
- 	if(_this->info.vfmt->palette != NULL)
- 	{
- 		TBool palchanged = EFalse;	
--	
--		if(ncolors+firstcolor>256)
--		{
--			ncolors = 256-firstcolor;
--		}
-+	
-+		if(ncolors+firstcolor>256)
-+		{
-+			ncolors = 256-firstcolor;
-+		}
- 
- 		for(int i = 0; i < ncolors; i++) {
- 			
-@@ -896,22 +896,22 @@
- static int EPOC_FlipHWSurface(_THIS, SDL_Surface * /*surface*/)
- {
- 	return(0);
--}
--
--#define CalcAverage16(a, b) ((((a)&(0xF7DE))>>1)+(((b)&(0xF7DE))>>1)+((a)&(~(0xF7DE))))
-+}
-+
-+#define CalcAverage16(a, b) ((((a)&(0xF7DE))>>1)+(((b)&(0xF7DE))>>1)+((a)&(~(0xF7DE))))
- 
- inline TUint16 CalcAverage16Func(TUint16 pixel1, TUint16 pixel2)
--	{
--	pixel1 = (pixel1 & 0xF7DE)>>1;
--	pixel2 = (pixel2 & 0xF7DE)>>1;
-+	{
-+	pixel1 = (pixel1 & 0xF7DE)>>1;
-+	pixel2 = (pixel2 & 0xF7DE)>>1;
- 	return pixel1+pixel2+ ((pixel1)&(~(0xF7DE)));
- 	}
- 
- inline TUint16 CalcAverage12Func(TUint16 pixel1, TUint16 pixel2)
- 	{
--	pixel1 = (pixel1 & 0xEEE)>>1;
--	pixel2 = (pixel2 & 0xEEE)>>1;
--	return pixel1+pixel2 + ((pixel1)&(~(0xEEE)));;
-+	pixel1 = (pixel1 & 0xEEE)>>1;
-+	pixel2 = (pixel2 & 0xEEE)>>1;
-+	return pixel1+pixel2 + ((pixel1)&(~(0xEEE)));;
- 	}
- 
- /* Note:  If we are terminated, this could be called in the middle of
---- a/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp
-+++ b/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp
+-SYSTEMINCLUDE	\epoc32\include \epoc32\include\libc \epoc32\include\mmf\plugin
++SYSTEMINCLUDE	\epoc32\include\stdapis \epoc32\include \epoc32\include\mmf\plugin
+ SYSTEMINCLUDE   \epoc32\include\mw
+ SYSTEMINCLUDE   \epoc32\include\platform
+ SYSTEMINCLUDE   \epoc32\include\platform\mw
+diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp sdl-final/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp
+--- pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp	2026-10-17 07:42:23.000000000 -0700
++++ sdl-final/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp	2026-11-24 10:15:45.762765320 -0800
 @@ -1,2189 +1,2202 @@
 -/*
 -    SDL - Simple DirectMedia Layer
@@ -11013,8 +10618,445 @@
 +
 +#endif
 +
---- a/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl
-+++ b/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl
+diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp sdl-final/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp
+--- pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp	2026-10-17 07:42:23.000000000 -0700
++++ sdl-final/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp	2026-11-24 10:15:45.762738492 -0800
+@@ -32,7 +32,7 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
+-#include <apgwgnam.h>
++#include <apgwgnam.h>
+ 
+ extern "C" {
+ #include "SDL_error.h"
+@@ -53,21 +53,21 @@
+ #include "SDL_epocvideo.h"
+ #include "SDL_epocevents_c.h"
+ #include "EBasicApp.h"
+-#if !defined UIQ3 && !defined S60V3
+-#include <hal.h>
+-#endif
+-
+-#include <coedef.h>
+-extern bool gViewVisible;
+-
+-TInt32 i240StartTable[240];
+-TUint16 i320StartTable[320];
+-TUint8 i320StepTable[320];
+-TInt gScaleXPos[641];
+-TInt gScaleYPos[641];
+-TInt gScaleStep[641];
+-TInt gScaleYStep[641];
+-TBool gHeapIsLocked=EFalse;
++#if !defined UIQ3 && !defined S60V3
++#include <hal.h>
++#endif
++
++#include <coedef.h>
++extern bool gViewVisible;
++
++TInt32 i240StartTable[240];
++TUint16 i320StartTable[320];
++TUint8 i320StepTable[320];
++TInt gScaleXPos[641];
++TInt gScaleYPos[641];
++TInt gScaleStep[641];
++TInt gScaleYStep[641];
++TBool gHeapIsLocked=EFalse;
+ 
+ extern "C" void EPOC_CalcStretchFactors(_THIS,TSize aTargetSize);
+ 	
+@@ -103,32 +103,32 @@
+ 			}		
+ 		}
+ 
+-	}
+-
+-void ClearBackBuffer(_THIS)
+-{
+-	/* Clear backbuffer */
+-#if defined (__WINS__)|| defined (S60) || defined (S80) || defined(S90)||defined(UIQ3)||defined(S60V3)
+-	TBool lockedHeap=EFalse;
+-	TBitmapUtil lock(Private->EPOC_Bitmap);	
+-	if(!gHeapIsLocked)
+-	{
+-		lock.Begin(TPoint(0,0)); // Lock bitmap heap
+-		gHeapIsLocked=ETrue;
+-		lockedHeap=ETrue;
+-	}
+-	TUint16* screenBuffer = (TUint16*)Private->EPOC_Bitmap->DataAddress();
+-#else
+-	TUint16* screenBuffer = (TUint16*)Private->EPOC_FrameBuffer;
+-#endif
+-	memset(screenBuffer, 0, Private->EPOC_ScreenSize.iHeight*Private->EPOC_ScreenSize.iWidth*Private->EPOC_BytesPerPixel);
+-#if defined (__WINS__) || defined (S60) || defined (S80) || defined(S90) || defined(UIQ3) || defined(S60V3)
+-	if(lockedHeap)
+-	{
+-		lock.End();
+-		gHeapIsLocked=EFalse;
+-	}
+-#endif
++	}
++
++void ClearBackBuffer(_THIS)
++{
++	/* Clear backbuffer */
++#if defined (__WINS__)|| defined (S60) || defined (S80) || defined(S90)||defined(UIQ3)||defined(S60V3)
++	TBool lockedHeap=EFalse;
++	TBitmapUtil lock(Private->EPOC_Bitmap);	
++	if(!gHeapIsLocked)
++	{
++		lock.Begin(TPoint(0,0)); // Lock bitmap heap
++		gHeapIsLocked=ETrue;
++		lockedHeap=ETrue;
++	}
++	TUint16* screenBuffer = (TUint16*)Private->EPOC_Bitmap->DataAddress();
++#else
++	TUint16* screenBuffer = (TUint16*)Private->EPOC_FrameBuffer;
++#endif
++	memset(screenBuffer, 0, Private->EPOC_ScreenSize.iHeight*Private->EPOC_ScreenSize.iWidth*Private->EPOC_BytesPerPixel);
++#if defined (__WINS__) || defined (S60) || defined (S80) || defined(S90) || defined(UIQ3) || defined(S60V3)
++	if(lockedHeap)
++	{
++		lock.End();
++		gHeapIsLocked=EFalse;
++	}
++#endif
+ }
+ 
+ /* For debugging */
+@@ -191,7 +191,7 @@
+ 
+ /* Mouse functions */
+ static void EPOC_FreeWMCursor(_THIS, WMcursor *cursor);
+-static int EPOC_ShowWMCursor(_THIS, WMcursor *cursor);
++static int EPOC_ShowWMCursor(_THIS, WMcursor *cursor);
+ 
+ static WMcursor *EPOC_CreateWMCursor(_THIS, Uint8* /*data*/, Uint8* /*mask*/, int /*w*/, int /*h*/, int /*hot_x*/, int /*hot_y*/);
+ /* !! Table for fast conversion from 8 bit to 12/16 bit */
+@@ -264,20 +264,20 @@
+ 	device->FreeWMCursor = EPOC_FreeWMCursor;
+ 	device->CreateWMCursor = EPOC_CreateWMCursor;
+ 	device->ShowWMCursor = EPOC_ShowWMCursor;
+-	device->WarpWMCursor = NULL;
++	device->WarpWMCursor = NULL;
+ 
+ 	device->InitOSKeymap = EPOC_InitOSKeymap;
+ 	device->PumpEvents = EPOC_PumpEvents;
+-	device->free = EPOC_DeleteDevice;
+-	device->hidden->iEikEnv=CEikonEnv::Static();
+-
++	device->free = EPOC_DeleteDevice;
++	device->hidden->iEikEnv=CEikonEnv::Static();
++
+ 	return device;
+-}
+-
+-TUint8 MsbToLsb(TUint8 aVal)
+-    {
+-    TUint lsbValue = ((aVal&1)<<7)|((aVal&2)<<5)|((aVal&4)<<3)|((aVal&8)<<1)|((aVal&16)>>1)|((aVal&32)>>3)|((aVal&64)>>5)|((aVal&128)>>7);
+-    return lsbValue;
++}
++
++TUint8 MsbToLsb(TUint8 aVal)
++    {
++    TUint lsbValue = ((aVal&1)<<7)|((aVal&2)<<5)|((aVal&4)<<3)|((aVal&8)<<1)|((aVal&16)>>1)|((aVal&32)>>3)|((aVal&64)>>5)|((aVal&128)>>7);
++    return lsbValue;
+     }
+ 
+ void MsbToLsbVert(TUint8 aVal, TUint8* aValues, TUint8 aBitToSet)
+@@ -395,7 +395,7 @@
+ 	
+ 	}
+ WMcursor *EPOC_CreateWMCursor(_THIS, Uint8* data, Uint8* mask, int w, int h, int hot_x, int hot_y)
+-    {
++    {
+ 	WMcursor* cursor = new WMcursor;
+ 	TInt cursorSize = (w*h)/8;	
+ 	cursor->iWidth = w;
+@@ -407,29 +407,29 @@
+     }
+ 
+ void EPOC_FreeWMCursor(_THIS, WMcursor* cursor)
+-{
+-	if(cursor != NULL)
+-	{
+-		delete cursor->iCursorPBitmap;
+-		cursor->iCursorPBitmap = NULL;
+-		delete cursor->iCursorPMask;
++{
++	if(cursor != NULL)
++	{
++		delete cursor->iCursorPBitmap;
++		cursor->iCursorPBitmap = NULL;
++		delete cursor->iCursorPMask;
+ 		cursor->iCursorPMask = NULL;	
+ 		
+ 		delete cursor->iCursorLBitmap;
+ 		cursor->iCursorLBitmap = NULL;
+-		delete cursor->iCursorLMask;
++		delete cursor->iCursorLMask;
+ 		cursor->iCursorLMask = NULL;
+ 		
+ 		delete cursor->iCursorLFBitmap;
+ 		cursor->iCursorLFBitmap = NULL;
+ 		delete cursor->iCursorLFMask;
+ 		cursor->iCursorLFMask = NULL;				
+-	}
+-}
++	}
++}
+ 
+ int EPOC_ShowWMCursor(_THIS, WMcursor *cursor)
+-{
+-    /* Set the window cursor to our cursor, if applicable */
++{
++    /* Set the window cursor to our cursor, if applicable */
+     _this->hidden->iCursor = cursor;
+     if (cursor)
+     {
+@@ -449,96 +449,96 @@
+ int GetBpp(TDisplayMode displaymode)
+ {
+ 	return 16;// TDisplayModeUtils::NumDisplayModeBitsPerPixel(displaymode); 
+-}
++}
++
++void EPOC_SetCaption(_THIS, const char * title, const char * /*icon*/)
++{
++	if(title != NULL)
++	{
++		TInt titleLen = strlen(title);
++		HBufC* titleBuffer = HBufC::NewLC(titleLen);
++		TPtrC8 titlePtr((const unsigned char*)title, titleLen);
++		titleBuffer->Des().Copy(titlePtr);
++		CApaWindowGroupName* groupName = CApaWindowGroupName::NewL(Private->iEikEnv->WsSession(), Private->iEikEnv->RootWin().Identifier());
++		CleanupStack::PushL(groupName);	
++		groupName->SetCaptionL(*titleBuffer);
++		groupName->SetWindowGroupName(Private->iEikEnv->RootWin());
++		CleanupStack::PopAndDestroy(2, titleBuffer);
++	}
++}
+ 
+-void EPOC_SetCaption(_THIS, const char * title, const char * /*icon*/)
+-{
+-	if(title != NULL)
+-	{
+-		TInt titleLen = strlen(title);
+-		HBufC* titleBuffer = HBufC::NewLC(titleLen);
+-		TPtrC8 titlePtr((const unsigned char*)title, titleLen);
+-		titleBuffer->Des().Copy(titlePtr);
+-		CApaWindowGroupName* groupName = CApaWindowGroupName::NewL(Private->iEikEnv->WsSession(), Private->iEikEnv->RootWin().Identifier());
+-		CleanupStack::PushL(groupName);	
+-		groupName->SetCaptionL(*titleBuffer);
+-		groupName->SetWindowGroupName(Private->iEikEnv->RootWin());
+-		CleanupStack::PopAndDestroy(2, titleBuffer);
+-	}
+-}
+-
+-#if defined  (__WINS__) ||  defined (S60) ||  defined (S80) ||  defined (S90) ||  defined (UIQ3) || defined(S60V3)
+-void EPOC_ReconfigureVideo(_THIS)
+-{
+-    /* Initialise Epoc frame buffer */
+-    TDisplayMode displayMode =Private->iEikEnv->ScreenDevice()->DisplayMode();	    
+-    /* Create bitmap, device and context for screen drawing */
+-	delete Private->EPOC_Bitmap;
+-	Private->EPOC_Bitmap = NULL;
+-	Private->EPOC_Bitmap = new (ELeave) CWsBitmap(Private->iEikEnv->WsSession());
+-	// Not 64K or 4K color mode, try to set 64K
+-	if(displayMode != EColor64K && displayMode != EColor4K)
+-	{
+-		displayMode=EColor64K;; // Also tried to switch to by the view.
+-	}
+-#if defined (S60)||defined (S60V3) // this needs to be atleast 320x200 to cope	
+-#ifdef S60V3
+-    Private->EPOC_ScreenSize   =Private->iEikEnv->ScreenDevice()->SizeInPixels();// TSize(256,320);
+-	Private->EPOC_DisplaySize = Private->EPOC_ScreenSize;
+-	// Must ensure that the height is at least 320 pixels height and 240 width
+-	TSize createSize = Private->EPOC_ScreenSize;
+-	
+-	//if(createSize.iHeight<320)
+-	//	createSize.iHeight = 320;
+-	
+-	/*if(createSize.iWidth<320)
+-	{
+-		Private->EPOC_ScreenSize.iWidth = 320;
+-		createSize.iWidth = 320;
++#if defined  (__WINS__) ||  defined (S60) ||  defined (S80) ||  defined (S90) ||  defined (UIQ3) || defined(S60V3)
++void EPOC_ReconfigureVideo(_THIS)
++{
++    /* Initialise Epoc frame buffer */
++    TDisplayMode displayMode =Private->iEikEnv->ScreenDevice()->DisplayMode();	    
++    /* Create bitmap, device and context for screen drawing */
++	delete Private->EPOC_Bitmap;
++	Private->EPOC_Bitmap = NULL;
++	Private->EPOC_Bitmap = new (ELeave) CWsBitmap(Private->iEikEnv->WsSession());
++	// Not 64K or 4K color mode, try to set 64K
++	if(displayMode != EColor64K && displayMode != EColor4K)
++	{
++		displayMode=EColor64K;; // Also tried to switch to by the view.
++	}
++#if defined (S60)||defined (S60V3) // this needs to be atleast 320x200 to cope	
++#ifdef S60V3
++    Private->EPOC_ScreenSize   =Private->iEikEnv->ScreenDevice()->SizeInPixels();// TSize(256,320);
++	Private->EPOC_DisplaySize = Private->EPOC_ScreenSize;
++	// Must ensure that the height is at least 320 pixels height and 240 width
++	TSize createSize = Private->EPOC_ScreenSize;
++	
++	//if(createSize.iHeight<320)
++	//	createSize.iHeight = 320;
++	
++	/*if(createSize.iWidth<320)
++	{
++		Private->EPOC_ScreenSize.iWidth = 320;
++		createSize.iWidth = 320;
+ 	}*/
+-
+-	Private->EPOC_Bitmap->Create(createSize, displayMode);
+-#else // S60
+-    Private->EPOC_ScreenSize=TSize(256,320);// TSize(256,320);
+-	Private->EPOC_Bitmap->Create(TSize(256,320), displayMode);
+-#endif
+-#elif defined (S80) || defined (S90)	
+-    Private->EPOC_ScreenSize        = Private->iEikEnv->ScreenDevice()->SizeInPixels();
+-	Private->EPOC_Bitmap->Create(Private->EPOC_ScreenSize, displayMode);
+-#else //UIQ
+-    Private->EPOC_ScreenSize  = Private->iEikEnv->ScreenDevice()->SizeInPixels();
++
++	Private->EPOC_Bitmap->Create(createSize, displayMode);
++#else // S60
++    Private->EPOC_ScreenSize=TSize(256,320);// TSize(256,320);
++	Private->EPOC_Bitmap->Create(TSize(256,320), displayMode);
++#endif
++#elif defined (S80) || defined (S90)	
++    Private->EPOC_ScreenSize        = Private->iEikEnv->ScreenDevice()->SizeInPixels();
++	Private->EPOC_Bitmap->Create(Private->EPOC_ScreenSize, displayMode);
++#else //UIQ
++    Private->EPOC_ScreenSize  = Private->iEikEnv->ScreenDevice()->SizeInPixels();
+     Private->EPOC_DisplaySize = Private->EPOC_ScreenSize;
+-	TSize createSize = Private->EPOC_ScreenSize;
+-	if(createSize.iHeight<320)
+-		createSize.iHeight = 320;
+-#ifndef UIQ3
+-	Private->EPOC_ScreenSize.iWidth=Private->EPOC_ScreenSize.iWidth-8;// Reserve lower 8 lines	
+-	createSize.iWidth = Private->EPOC_ScreenSize.iWidth;
+-#endif
+-	Private->EPOC_Bitmap->Create(createSize, displayMode);
+-#endif
+-	Private->EPOC_DisplayMode	    = displayMode;
+-	Private->EPOC_BytesPerPixel	    = ((GetBpp(displayMode)-1) / 8) + 1;
+-	Private->EPOC_BytesPerScanLine  = (Private->EPOC_ScreenSize.iWidth) * Private->EPOC_BytesPerPixel;
+-	Private->EPOC_ScreenOffset = 0;
+-	/* Tell the system that something has been drawn */
+-	TRect  rect = TRect(Private->iWindowCreator->Size());
+-  	Private->iWindowCreator->Win().Invalidate(rect);
+-  	UpdateScaleFactors();
+-
+-	if(current_video && current_video->screen != NULL) {
+-		RedrawWindowL(current_video);
+-	}
+-}
++	TSize createSize = Private->EPOC_ScreenSize;
++	if(createSize.iHeight<320)
++		createSize.iHeight = 320;
++#ifndef UIQ3
++	Private->EPOC_ScreenSize.iWidth=Private->EPOC_ScreenSize.iWidth-8;// Reserve lower 8 lines	
++	createSize.iWidth = Private->EPOC_ScreenSize.iWidth;
++#endif
++	Private->EPOC_Bitmap->Create(createSize, displayMode);
++#endif
++	Private->EPOC_DisplayMode	    = displayMode;
++	Private->EPOC_BytesPerPixel	    = ((GetBpp(displayMode)-1) / 8) + 1;
++	Private->EPOC_BytesPerScanLine  = (Private->EPOC_ScreenSize.iWidth) * Private->EPOC_BytesPerPixel;
++	Private->EPOC_ScreenOffset = 0;
++	/* Tell the system that something has been drawn */
++	TRect  rect = TRect(Private->iWindowCreator->Size());
++  	Private->iWindowCreator->Win().Invalidate(rect);
++  	UpdateScaleFactors();
++
++	if(current_video && current_video->screen != NULL) {
++		RedrawWindowL(current_video);
++	}
++}
+ #endif
+ 
+ int EPOC_VideoInit(_THIS, SDL_PixelFormat *vformat)
+ {
+-    // !!TODO:handle leave functions!
+-#if defined UIQ || defined UIQ3 || defined S90
+-	Private->iHasMouseOrTouch = ETrue;
+-#else
+-	Private->iHasMouseOrTouch = EFalse;
++    // !!TODO:handle leave functions!
++#if defined UIQ || defined UIQ3 || defined S90
++	Private->iHasMouseOrTouch = ETrue;
++#else
++	Private->iHasMouseOrTouch = EFalse;
+ #endif
+ 	Private->iOnecallback = new CAsyncCallBack (CActive::EPriorityLow); //Service all the others first and then this	
+ 	Private->iWindowCreator=static_cast<CEBasicAppUi*>(Private->iEikEnv->EikAppUi())->View();
+@@ -600,7 +600,7 @@
+ 		Private->EPOC_FrameBuffer += 16 * 2;
+ #endif
+ #else /* defined __WINS__ || S60 || S80||S90 || UIQ3*/
+-    EPOC_ReconfigureVideo(_this);  	
++    EPOC_ReconfigureVideo(_this);  	
+ #if defined (S60)||defined (S60V3) // this needs to be atleast 320x200 to cope
+ 	Private->iSX0Mode = ESX0Stretched|ESX0Flipped;
+ 	Private->iCurrentChar=65; // Start of with an A
+@@ -671,11 +671,11 @@
+ 	if(_this->info.vfmt->palette != NULL)
+ 	{
+ 		TBool palchanged = EFalse;	
+-	
+-		if(ncolors+firstcolor>256)
+-		{
+-			ncolors = 256-firstcolor;
+-		}
++	
++		if(ncolors+firstcolor>256)
++		{
++			ncolors = 256-firstcolor;
++		}
+ 
+ 		for(int i = 0; i < ncolors; i++) {
+ 			
+@@ -896,22 +896,22 @@
+ static int EPOC_FlipHWSurface(_THIS, SDL_Surface * /*surface*/)
+ {
+ 	return(0);
+-}
+-
+-#define CalcAverage16(a, b) ((((a)&(0xF7DE))>>1)+(((b)&(0xF7DE))>>1)+((a)&(~(0xF7DE))))
++}
++
++#define CalcAverage16(a, b) ((((a)&(0xF7DE))>>1)+(((b)&(0xF7DE))>>1)+((a)&(~(0xF7DE))))
+ 
+ inline TUint16 CalcAverage16Func(TUint16 pixel1, TUint16 pixel2)
+-	{
+-	pixel1 = (pixel1 & 0xF7DE)>>1;
+-	pixel2 = (pixel2 & 0xF7DE)>>1;
++	{
++	pixel1 = (pixel1 & 0xF7DE)>>1;
++	pixel2 = (pixel2 & 0xF7DE)>>1;
+ 	return pixel1+pixel2+ ((pixel1)&(~(0xF7DE)));
+ 	}
+ 
+ inline TUint16 CalcAverage12Func(TUint16 pixel1, TUint16 pixel2)
+ 	{
+-	pixel1 = (pixel1 & 0xEEE)>>1;
+-	pixel2 = (pixel2 & 0xEEE)>>1;
+-	return pixel1+pixel2 + ((pixel1)&(~(0xEEE)));;
++	pixel1 = (pixel1 & 0xEEE)>>1;
++	pixel2 = (pixel2 & 0xEEE)>>1;
++	return pixel1+pixel2 + ((pixel1)&(~(0xEEE)));;
+ 	}
+ 
+ /* Note:  If we are terminated, this could be called in the middle of
+diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl sdl-final/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl
+--- pristine/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl	2026-10-17 07:42:23.000000000 -0700
++++ sdl-final/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl	2026-11-24 10:15:45.762796907 -0800
 @@ -1,1257 +1,1258 @@
 -TInt i240StartPosition[240];
 -#define KVirtualKeyboardSpace 240

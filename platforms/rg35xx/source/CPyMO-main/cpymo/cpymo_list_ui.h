@@ -31,6 +31,7 @@ void cpymo_list_ui_set_viewport_height(struct cpymo_engine *,float);
 
 #ifdef GARLIC_NO_FFMPEG
 #define CPYMO_LIST_UI_SCROLLBAR_GUTTER 16.0f
+float cpymo_list_ui_node_height(const struct cpymo_engine *e);
 void cpymo_list_ui_set_scrollbar(struct cpymo_engine *e, size_t total_rows);
 #endif
 

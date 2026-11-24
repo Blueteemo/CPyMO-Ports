@@ -74,7 +74,7 @@ static inline bool cpymo_gameconfig_scripttype_is_pymo(const cpymo_gameconfig *g
 		g->scripttype[0] == 'p'
 		&& g->scripttype[1] == 'y'
 		&& g->scripttype[2] == 'm'
-		&& g->scripttype[3] == 'o';
+		&& g->scripttype[3] == '\0';
 }
 
 static inline float cpymo_gameconfig_font_size(const cpymo_gameconfig *c)

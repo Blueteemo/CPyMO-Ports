@@ -10,6 +10,7 @@
 #ifdef S60V3
 #include "cpymo_save.h"
 #include "cpymo_rmenu.h"
+#include "../cpymo-backends/sdl1/cpymo_s60_app.h"
 #include "../cpymo-backends/sdl1/cpymo_s60_diagnostics.h"
 #endif
 #include "cpymo_localization.h"
@@ -31,11 +32,57 @@ static void cpymo_logo() {
 	puts("");
 }
 
+#ifdef S60V3
+bool cpymo_engine_s60_uses_legacy_script(const cpymo_gameconfig *config)
+{
+	return config->scripttype[0] != 'p'
+		|| config->scripttype[1] != 'y'
+		|| config->scripttype[2] != 'm'
+		|| config->scripttype[3] != '\0';
+}
+#define cpymo_game_uses_legacy_script cpymo_engine_s60_uses_legacy_script
+#else
+static bool cpymo_game_uses_legacy_script(const cpymo_gameconfig *config)
+{
+	return config->scripttype[0] != 'p'
+		|| config->scripttype[1] != 'y'
+		|| config->scripttype[2] != 'm'
+		|| config->scripttype[3] != '\0';
+}
+#endif
+
+#ifdef S60V3
+static error_t cpymo_s60_choose_legacy_game(cpymo_engine *e, void *data, bool proceed)
+{
+	if (proceed) cpymo_s60_open_game_audio();
+	else cpymo_s60_request_game_list();
+	return CPYMO_ERR_SUCC;
+}
+static error_t cpymo_s60_legacy_fallback(cpymo_engine *e)
+{
+	const cpymo_localization *l = cpymo_localization_get(e);
+	return cpymo_msgbox_ui_enter_s60_legacy_choice(e, cpymo_str_pure(l->mo2pymo_required),
+		&cpymo_s60_choose_legacy_game);
+}
+#endif
+
 static error_t cpymo_engine_non_pymo_warning(cpymo_engine *e) 
 {
+#ifdef S60V3
+	const int choice = cpymo_s60_native_confirm_legacy_mo();
+	if (choice >= 0) {
+		e->prev_input = e->input = cpymo_input_snapshot();
+		e->ignore_next_mouse_button_flag = e->input.mouse_button;
+		if (choice) cpymo_s60_open_game_audio();
+		else cpymo_s60_request_game_list();
+		return CPYMO_ERR_SUCC;
+	}
+	return cpymo_s60_legacy_fallback(e);
+#else
 	const cpymo_localization *l = cpymo_localization_get(e);
 	return cpymo_msgbox_ui_enter(
 		e, cpymo_str_pure(l->mo2pymo_required), NULL, NULL);
+#endif
 }
 
 static error_t cpymo_engine_version_warning(cpymo_engine *e) 
@@ -56,22 +103,45 @@ static error_t cpymo_engine_version_warning(cpymo_engine *e)
 	return err;
 }
 
-error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir)
+#ifdef S60V3
+error_t cpymo_engine_s60_read_gameconfig(cpymo_gameconfig *out, const char *gamedir)
+#else
+static error_t cpymo_engine_read_gameconfig(cpymo_gameconfig *out, const char *gamedir)
+#endif
 {
-	// init audio system
-	cpymo_audio_init(&out->audio);
-
-	// load game config
 	const size_t gamedir_strlen = strlen(gamedir);
 	char *path = (char *)malloc(gamedir_strlen + 16);
 	if (path == NULL) return CPYMO_ERR_OUT_OF_MEM;
 
 	strcpy(path, gamedir);
 	strcpy(path + gamedir_strlen, "/gameconfig.txt");
-	error_t err = cpymo_gameconfig_parse_from_file(&out->gameconfig, path);
+	error_t err = cpymo_gameconfig_parse_from_file(out, path);
 	free(path);
+	return err;
+}
+
+#ifdef S60V3
+/* 2 means no preflight was run; -1 means the native prompt failed. */
+static error_t cpymo_engine_init_impl(cpymo_engine *out, const char *gamedir,
+	const cpymo_gameconfig *loaded_config, int legacy_decision)
+#else
+error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir)
+#endif
+{
+	cpymo_audio_init(&out->audio);
+	error_t err = CPYMO_ERR_SUCC;
+#ifdef S60V3
+	if (loaded_config) out->gameconfig = *loaded_config;
+	else err = cpymo_engine_s60_read_gameconfig(&out->gameconfig, gamedir);
+#else
+	err = cpymo_engine_read_gameconfig(&out->gameconfig, gamedir);
+#endif
 	if (err != CPYMO_ERR_SUCC) return err;
 #ifdef S60V3
+	/* The selector has already dismissed the native prompt on continue.
+	 * Without that affirmative choice, leave PCM closed for legacy prompts. */
+	if (!cpymo_game_uses_legacy_script(&out->gameconfig) || legacy_decision == 1)
+		cpymo_s60_open_game_audio();
 	if (cpymo_gameconfig_is_symbian(&out->gameconfig) &&
 			out->gameconfig.imagesize_w == 320 && out->gameconfig.imagesize_h == 240)
 		out->gameconfig.fontsize = 16;
@@ -209,14 +279,14 @@ error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir)
 	cpymo_logo();
 
 	// checks
-	if (out->gameconfig.scripttype[0] != 'p'
-		|| out->gameconfig.scripttype[1] != 'y'
-		|| out->gameconfig.scripttype[2] != 'm'
-		|| out->gameconfig.scripttype[3] != '\0') {
-		cpymo_wait_callback_after_seconds(&out->wait, 0, &cpymo_engine_non_pymo_warning);
-	}
-
-	if (!cpymo_pymo_version_compatible(
+	if (cpymo_game_uses_legacy_script(&out->gameconfig)) {
+#ifdef S60V3
+		if (legacy_decision < 0)
+			cpymo_wait_callback_after_seconds(&out->wait, 0, &cpymo_s60_legacy_fallback);
+		else if (legacy_decision != 1)
+#endif
+			cpymo_wait_callback_after_seconds(&out->wait, 0, &cpymo_engine_non_pymo_warning);
+	} else if (!cpymo_pymo_version_compatible(
 			out->gameconfig.engineversion, cpymo_pymo_version_current)) {
 		cpymo_wait_callback_after_seconds(
 			&out->wait, 0, 
@@ -225,6 +295,19 @@ error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir)
 
 	return CPYMO_ERR_SUCC;
 }
+
+#ifdef S60V3
+error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir)
+{
+	return cpymo_engine_init_impl(out, gamedir, NULL, 2);
+}
+
+error_t cpymo_engine_s60_init_from_list(cpymo_engine *out, const char *gamedir,
+	const cpymo_gameconfig *loaded_config, int legacy_decision)
+{
+	return cpymo_engine_init_impl(out, gamedir, loaded_config, legacy_decision);
+}
+#endif
 
 void cpymo_engine_free(cpymo_engine *engine)
 {
@@ -434,6 +517,14 @@ error_t cpymo_engine_update(cpymo_engine *engine, float delta_time_sec, bool * r
 			engine, 
 			delta_time_sec);
 		CPYMO_THROW(err);
+
+#ifdef S60V3
+		/* A wait callback can open the legacy notice before the first script step. */
+		if (cpymo_ui_enabled(engine) || cpymo_s60_game_list_requested()) {
+			*redraw = true;
+			return CPYMO_ERR_SUCC;
+		}
+#endif
 
 		if (!cpymo_wait_is_wating(&engine->wait)) {
 			if (engine->interpreter)

@@ -27,3 +27,24 @@ RESOURCE DIALOG r_cpymo_exit_query {
         }
     };
 }
+RESOURCE CBA r_cpymo_legacy_mo_buttons {
+    buttons = {
+        CBA_BUTTON { id = EEikBidOk; txt = "Continue"; },
+        CBA_BUTTON { id = EEikBidCancel; txt = "Back"; }
+    };
+}
+RESOURCE DIALOG r_cpymo_legacy_mo_query {
+    flags = EGeneralQueryFlags;
+    buttons = r_cpymo_legacy_mo_buttons;
+    items = {
+        DLG_LINE {
+            type = EAknCtQuery;
+            id = EGeneralQuery;
+            control = AVKON_CONFIRMATION_QUERY {
+                layout = EConfirmationQueryLayout;
+                label = "";
+                animation = R_QGN_NOTE_WARNING_ANIM;
+            };
+        }
+    };
+}

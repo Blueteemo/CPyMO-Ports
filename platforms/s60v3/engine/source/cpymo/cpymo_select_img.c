@@ -8,6 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef S60V3
+#include "../cpymo-backends/sdl1/cpymo_s60_text_metrics.h"
+#endif
+
 #ifdef ENABLE_TEXT_EXTRACT_ANDROID_ACCESSIBILITY
 #include "../cpymo-backends/android/app/src/main/cpp/include/cpymo_android.h"
 #endif
@@ -75,6 +79,7 @@ void cpymo_select_img_reset(cpymo_select_img *img)
 	img->selections = NULL;
 #ifdef S60V3
     img->confirmed_image_menu = false;
+    img->text_without_shadow = false;
 #endif
 	img->select_img_image = NULL;
 	img->show_option_background = false;
@@ -485,15 +490,16 @@ void cpymo_select_img_draw(const cpymo_select_img *o, int logical_screen_w, int 
 				}
 #endif
 
-				cpymo_backend_text_draw(
-					sel->or_text,
-					sel->x + x_off,
-					sel->y + y_off,
-					(selected && o->sel_highlight == NULL) ? 
-						cpymo_color_inv(sel->text_color) : sel->text_color,
-					gray ? 0.75f : 1.0f,
-					o->draw_type
-				);
+				const cpymo_color text_color = selected && o->sel_highlight == NULL
+					? cpymo_color_inv(sel->text_color) : sel->text_color;
+				const float text_alpha = gray ? 0.75f : 1.0f;
+#ifdef S60V3
+				if (o->text_without_shadow)
+					cpymo_s60_text_draw_plain(sel->or_text, sel->x, sel->y, text_color, text_alpha);
+				else
+#endif
+					cpymo_backend_text_draw(sel->or_text, sel->x + x_off, sel->y + y_off,
+						text_color, text_alpha, o->draw_type);
 
 			}
 		}
@@ -646,6 +652,10 @@ void cpymo_select_img_configuare_end_select_text(
 		sel->selections[i].y += y_offset;
 
 	sel->show_option_background = show_option_background;
+#ifdef S60V3
+	/* select_text and select_var omit the story-choice panel. */
+	sel->text_without_shadow = sel == &e->select_img && !show_option_background;
+#endif
 
 	cpymo_select_img_configuare_end(sel, waiter, e, init_pos);
 

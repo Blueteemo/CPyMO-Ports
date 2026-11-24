@@ -21,6 +21,10 @@
 #include "../../cpymo/cpymo_config_ui.h"
 #include "../../cpymo/cpymo_save.h"
 #include "../../cpymo/garlic_movie.h"
+#ifdef GARLIC_NATIVE_MOVIE
+#include "client.h"
+#endif
+#include <time.h>
 #include "../../cpymo/garlic_image_cache.h"
 #include "../../cpymo/garlic_stages.h"
 #include "../../endianness.h/endianness.h"
@@ -109,10 +113,18 @@ error_t garlic_queue_game(const char *gamedir)
 void garlic_request_library(void) { garlic_library_requested = true; }
 void garlic_abort_game(error_t cause) { garlic_abort_error = cause; }
 
-void garlic_movie_log(const char *message)
+error_t garlic_request_native_probe(void)
 {
-    log_cb(RETRO_LOG_INFO, "%s\n", message);
+    const char *path = getenv("CPYMO_VDE_REQUEST");
+    if (!path || !path[0]) return CPYMO_ERR_UNSUPPORTED;
+    FILE *request = fopen(path, "wb");
+    if (!request) return CPYMO_ERR_CAN_NOT_OPEN_FILE;
+    int result = fclose(request);
+    if (result != 0) return CPYMO_ERR_CAN_NOT_OPEN_FILE;
+    garlic_exit_requested = true;
+    return CPYMO_ERR_SUCC;
 }
+
 /* Menu geometry, at the OUTPUT size, from §4 of the v0.23 task. Drawing the
  * menu at 640x480 makes the RGB565 blit an exact 1:1 copy, so the menu
  * cannot be blurred by the scaler it is used to choose games for. */
@@ -432,6 +444,18 @@ static void garlic_diagnostics_begin(const char *gamedir)
         garlic_log_file = fopen(garlic_log_path, "wb");
     }
 }
+void garlic_movie_log(const char *message)
+{
+    log_cb(RETRO_LOG_INFO, "%s\n", message);
+    if (!garlic_selected_game[0] ||
+        (strncmp(message, "MOVIE start ", 12) && strncmp(message, "MOVIE end ", 10)))
+        return;
+    FILE *trace = garlic_open_save(garlic_selected_game, "video-playback.log", "ab");
+    if (!trace) return;
+    if (fseek(trace, 0, SEEK_END) == 0 && ftell(trace) < 65536)
+        fprintf(trace, "[%lld] %s\n", (long long)time(NULL), message);
+    fclose(trace);
+}
 static void garlic_log(enum retro_log_level level, const char *fmt, ...)
 {
     if (!garlic_debug && level < RETRO_LOG_ERROR) return;
@@ -492,12 +516,19 @@ static void audio_callback(void)
      * failed), locking here would be UB. */
     if (audio_mutex_initialized) mtx_lock(&audio_mutex);
 #endif
-    cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
+    bool movie_audio = false;
+#if defined(GARLIC_MP3_AUDIO) && defined(GARLIC_EXPERIMENTAL_MOVIE)
+    movie_audio = garlic_movie_audio(audio_buffer, samples);
+#endif
+    if (!movie_audio)
+        cpymo_audio_copy_mixed_samples(audio_buffer, samples * 4, &engine.audio);
 #ifndef GARLIC_NO_FFMPEG
     if (audio_mutex_initialized) mtx_unlock(&audio_mutex);
 #endif
 #ifndef GARLIC_MP3_AUDIO
     garlic_output_gain(audio_buffer, samples * 2);
+#else
+    if (movie_audio) garlic_output_gain(audio_buffer, samples * 2);
 #endif
     uint32_t mixed = garlic_audio_observer_enabled ? (uint32_t)garlic_micros() : 0;
     size_t accepted = audio_batch_cb(audio_buffer, samples);
@@ -583,7 +614,7 @@ void retro_get_system_info(struct retro_system_info *info)
 {
     info->need_fullpath = true;
     info->valid_extensions = "txt|/";
-    info->library_version = "1.0.0";
+    info->library_version = "1.1.0";
     info->library_name = "CPyMO";
     info->block_extract = false;
 }
@@ -1067,7 +1098,7 @@ static bool garlic_open_menu(const char *games_root, const char *initial_game)
     garlic_screen = GARLIC_SCREEN_MENU;
     float footer_width;
     cpymo_backend_text_create(&garlic_library_footer, &footer_width,
-        cpymo_str_pure("CPyMO 1.0.0   A：启动   ↑↓：选择   B：退出"), 19);
+        cpymo_str_pure("CPyMO 1.1.0   A：启动   ↑↓：选择   B：退出"), 19);
     garlic_prof_reset();
     {
         uint64_t now = garlic_micros();
@@ -1196,7 +1227,7 @@ bool retro_load_game(const struct retro_game_info *game)
     const char *dbg = getenv("CPYMO_DEBUG");
     garlic_debug = dbg && !strcmp(dbg, "1");
     garlic_stage_enable(garlic_debug);garlic_stage_reset();
-    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=1.0.0 font_steps=72/74 movie=disabled audio=phase-headroom7 ui=centered-layout12\n");
+    log_cb(RETRO_LOG_INFO, "CPYMO_CORE version=1.1.0 font_steps=72/74 movie=native-mp4+mjpeg-avi audio=phase-headroom7 ui=centered-layout12\n");
     const char *pct = getenv("CPYMO_OUTPUT_PERCENT");
     char *pct_end = NULL;
     long pct_value = pct ? strtol(pct, &pct_end, 10) : 50;
@@ -1590,6 +1621,11 @@ void retro_run(void)
         garlic_toast_left -= delta;
         if (garlic_toast_left <= 0) garlic_toast_clear();
     }
+#ifdef GARLIC_NATIVE_MOVIE
+    if (garlic_native_movie_video(garlic_rgb565_frame, delta)) {
+        garlic_first_frame = false;
+    } else
+#endif
     if (redraw || garlic_first_frame) {
         garlic_prof_draws++;
         tick = garlic_micros();
@@ -1600,7 +1636,7 @@ void retro_run(void)
         soft_context.frame_painted=false;
         cpymo_engine_draw(&engine);
         if (garlic_screen == GARLIC_SCREEN_MENU && garlic_library_footer)
-            cpymo_backend_text_draw(garlic_library_footer, 16, 444,
+            cpymo_backend_text_draw(garlic_library_footer, 16, 446,
                 cpymo_color_white, 1.0f, cpymo_backend_image_draw_type_ui_element);
         garlic_toast_draw();
         uint64_t after_draw = garlic_micros();
@@ -1641,7 +1677,8 @@ void retro_run(void)
     tick = garlic_micros();
     bool movie_audio = false;
 #if defined(GARLIC_MP3_AUDIO) && defined(GARLIC_EXPERIMENTAL_MOVIE)
-    movie_audio = garlic_movie_audio(audio_buffer, samples);
+    if (!use_audio_callback || !audio_enabled)
+        movie_audio = garlic_movie_audio(audio_buffer, samples);
 #endif
     if (audio_enabled && !use_audio_callback) {
         uint32_t observed_begin = garlic_audio_observer_enabled ? (uint32_t)garlic_micros() : 0;

@@ -172,7 +172,15 @@ void cpymo_s60_request_game_start(char *gamedir)
     // Let Avkon finish the confirm click before SDL takes the audio stream.
     s60_start_at = SDL_GetTicks() + 160;
 }
+void cpymo_s60_open_game_audio(void)
+{
+    extern void cpymo_backend_audio_init(void);
+    CPYMO_S60_TRACE("[S60] opening game PCM after script-type gate.\n");
+    cpymo_backend_audio_init();
+}
+
 void cpymo_s60_request_game_list(void) { s60_return_requested = true; }
+bool cpymo_s60_game_list_requested(void) { return s60_return_requested; }
 void cpymo_s60_request_font_restart(void)
 {
     s60_font_restart_requested = true;
@@ -766,6 +774,7 @@ int main(int argc, char **argv)
             &redraw);
 
 #ifdef S60V3
+        if (cpymo_s60_movie_take_time_reset()) cur_time = SDL_GetTicks();
         if (loading_saved_scene) {
             const Uint32 loaded_at = SDL_GetTicks();
             CPYMO_S60_TRACE("[S60] Save restore and scene loading: %lu ms.\n",
@@ -776,12 +785,25 @@ int main(int argc, char **argv)
         if (s60_start_requested && (Sint32)(SDL_GetTicks() - s60_start_at) >= 0) {
             char *path = s60_start_requested;
             s60_start_requested = NULL;
+            cpymo_gameconfig preflight_config;
+            const bool config_loaded =
+                cpymo_engine_s60_read_gameconfig(&preflight_config, path) == CPYMO_ERR_SUCC;
+            int legacy_decision = 2;
+            if (s60_in_selector && config_loaded &&
+                cpymo_engine_s60_uses_legacy_script(&preflight_config)) {
+                legacy_decision = cpymo_s60_native_confirm_legacy_mo();
+                if (legacy_decision == 0) {
+                    // Keep the live list (including selection and key-repeat state).
+                    free(path);
+                    prev_time = SDL_GetTicks();
+                    continue;
+                }
+            }
             cpymo_engine_free(&engine);
             memset(&engine, 0, sizeof(engine));
             s60_engine_live = false;
-            CPYMO_S60_TRACE("[S60] confirmation interval complete; opening game audio.\n");
-            cpymo_backend_audio_init();
-            err = cpymo_engine_init(&engine, path);
+            err = cpymo_engine_s60_init_from_list(&engine, path,
+                config_loaded ? &preflight_config : NULL, legacy_decision);
             if (err == CPYMO_ERR_SUCC) {
                 s60_engine_live = true;
                 err = after_start_game(&engine, path);

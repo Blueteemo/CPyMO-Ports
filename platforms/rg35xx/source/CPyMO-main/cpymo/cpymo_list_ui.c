@@ -738,6 +738,12 @@ void cpymo_list_ui_set_viewport_height(cpymo_engine *e,float height)
 }
 
 #ifdef GARLIC_NO_FFMPEG
+float cpymo_list_ui_node_height(const cpymo_engine *e)
+{
+	const cpymo_list_ui *ui = cpymo_ui_data_const(e);
+	return ui->node_height;
+}
+
 void cpymo_list_ui_set_scrollbar(cpymo_engine *e, size_t total_rows)
 {
 	((cpymo_list_ui *)cpymo_ui_data(e))->scrollbar_rows = total_rows;

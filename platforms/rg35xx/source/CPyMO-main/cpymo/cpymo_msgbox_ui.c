@@ -19,6 +19,9 @@ const extern bool enhanced_3ds_display_mode;
 typedef struct {
 	cpymo_backend_text message;
 	float message_width;
+	cpymo_backend_text detail;
+	float detail_width;
+	float message_spacing;
 
 	cpymo_backend_text confirm_btn;
 	float confirm_btn_width;
@@ -26,6 +29,9 @@ typedef struct {
 	float cancel_btn_width;
 
 	int selection;
+	const char *cancel_label;
+	bool legacy_choice;
+	bool ignore_opening_ok_release;
 
 	error_t(*okcancel_callback)(cpymo_engine *e, void *data, bool);
 	void *okcancel_callback_data;
@@ -131,9 +137,10 @@ static error_t cpymo_msgbox_ui_update(cpymo_engine *e, void *ui_data, float dt)
 
 		cpymo_engine_request_redraw(e);
 
-		cpymo_backend_text_extract(ui->selection == 0 ? l->msgbox_ok : l->msgbox_cancel);
+		cpymo_backend_text_extract(ui->selection == 0 ? l->msgbox_ok : ui->cancel_label);
 	}
 	else if (CPYMO_INPUT_JUST_PRESSED(e, ok)) {
+		ui->ignore_opening_ok_release = false;
 		if (ui->cancel_btn == NULL) {
 			ui->selection = 0;
 		}
@@ -145,6 +152,10 @@ static error_t cpymo_msgbox_ui_update(cpymo_engine *e, void *ui_data, float dt)
 		cpymo_engine_request_redraw(e);
 	}
 	else if (CPYMO_INPUT_JUST_RELEASED(e, ok) && ui->selection != -1) {
+		if (ui->ignore_opening_ok_release) {
+			ui->ignore_opening_ok_release = false;
+			return CPYMO_ERR_SUCC;
+		}
 		cpymo_engine_request_redraw(e);
 		return cpymo_msgbox_ui_okcancel_finish(e, !ui->selection);
 	}
@@ -162,7 +173,7 @@ static error_t cpymo_msgbox_ui_update(cpymo_engine *e, void *ui_data, float dt)
 
 			if (ui->selection >= 0)
 				cpymo_backend_text_extract(
-					ui->selection == 0 ? l->msgbox_ok : l->msgbox_cancel);
+					ui->selection == 0 ? l->msgbox_ok : ui->cancel_label);
 		}
 	}
 
@@ -175,24 +186,29 @@ static void cpymo_msgbox_ui_draw_btn(
 	float txt_width, 
 	float font_size, 
 	float screen_w,
-	float screen_h,
 	float y, 
 	bool sel,
-	bool key_down)
+	bool key_down,
+	bool fill_unselected)
 {
 	float xywh[4];
 	cpymo_msgbox_ui_get_btn_rect(xywh, btn_width, font_size, screen_w, y);
 
-	cpymo_color gray;
-	gray.r = 128;
-	gray.g = 128;
-	gray.b = 128;
+	cpymo_color fill = cpymo_color_black;
+	float opacity = 0.5f;
+	if (sel) {
+		fill = key_down ? (cpymo_color){128, 128, 128} : cpymo_color_white;
+		opacity = 1.0f;
+	} else if (fill_unselected) {
+		fill = (cpymo_color){48, 48, 48};
+		opacity = 1.0f;
+	}
 
 	cpymo_backend_image_fill_rects(
 		xywh,
 		1,
-		sel ? (key_down ? gray : cpymo_color_white) : cpymo_color_black,
-		sel ? 1.0f : 0.5f,
+		fill,
+		opacity,
 		cpymo_backend_image_draw_type_ui_element);
 
 	cpymo_backend_text_draw(
@@ -220,14 +236,26 @@ static void cpymo_msgbox_ui_draw(const cpymo_engine *e, const void *ui_data)
 
 	float screen_w = (float)e->gameconfig.imagesize_w, screen_h = (float)e->gameconfig.imagesize_h;
 	float xywh[] = { -100, -100, screen_w + 200, screen_h + 200 };
-	cpymo_backend_image_fill_rects(xywh, 1, cpymo_color_black, 0.5f, cpymo_backend_image_draw_type_bg);
+	float shade_opacity = 0.5f;
+#ifdef GARLIC_NO_FFMPEG
+	/* An empty scene must replace the previous dialog pixels. */
+	if (!e->bg.current_bg && !e->scroll.img)
+		shade_opacity = 1.0f;
+#endif
+	cpymo_backend_image_fill_rects(xywh, 1, cpymo_color_black, shade_opacity, cpymo_backend_image_draw_type_bg);
 
 	const cpymo_msgbox_ui *ui = (const cpymo_msgbox_ui *)ui_data;
 	float fontsize = cpymo_gameconfig_font_size(&e->gameconfig);
+	bool fill_unselected = ui->legacy_choice && shade_opacity == 1.0f;
 
 	float x = (screen_w - ui->message_width) / 2;
 	float y = screen_h * 0.3f + fontsize / 2;
-	cpymo_backend_text_draw(ui->message, x, y, cpymo_color_white, 1.0f, cpymo_backend_image_draw_type_ui_element);
+	cpymo_backend_text_draw(ui->message, x, y - ui->message_spacing / 2,
+		cpymo_color_white, 1.0f, cpymo_backend_image_draw_type_ui_element);
+	if (ui->detail) {
+		cpymo_backend_text_draw(ui->detail, (screen_w - ui->detail_width) / 2,
+			y + ui->message_spacing / 2, cpymo_color_white, 1.0f, cpymo_backend_image_draw_type_ui_element);
+	}
 
 	bool key_down = e->input.mouse_button || e->input.ok;
 
@@ -239,10 +267,10 @@ static void cpymo_msgbox_ui_draw(const cpymo_engine *e, const void *ui_data)
 		ui->confirm_btn_width, 
 		fontsize, 
 		screen_w, 
-		screen_h,
 		ui->cancel_btn ? screen_h * 0.5f : screen_h * 0.618f,
 		ui->selection == 0,
-		key_down);
+		key_down,
+		fill_unselected);
 
 	if (ui->cancel_btn) {
 		cpymo_msgbox_ui_draw_btn(
@@ -251,10 +279,10 @@ static void cpymo_msgbox_ui_draw(const cpymo_engine *e, const void *ui_data)
 			ui->cancel_btn_width,
 			fontsize,
 			screen_w,
-			screen_h,
 			screen_h * 0.5f + fontsize * 1.75f + (8.0f / (fontsize / 32)),
 			ui->selection == 1,
-			key_down);
+			key_down,
+			fill_unselected);
 	}
 
 	#ifdef __3DS__
@@ -267,12 +295,14 @@ static void cpymo_msgbox_ui_delete(struct cpymo_engine *e, void *ui_data)
 	cpymo_msgbox_ui *ui = (cpymo_msgbox_ui *)ui_data;
 
 	if (ui->okcancel_callback) {
-		ui->okcancel_callback(e, ui->okcancel_callback_data, false);
+		if (!ui->legacy_choice)
+			ui->okcancel_callback(e, ui->okcancel_callback_data, false);
 		ui->okcancel_callback = NULL;
 		ui->okcancel_callback_data = NULL;
 	}
 	
 	if (ui->message) cpymo_backend_text_free(ui->message);
+	if (ui->detail) cpymo_backend_text_free(ui->detail);
 	if (ui->confirm_btn) cpymo_backend_text_free(ui->confirm_btn);
 	if (ui->cancel_btn) cpymo_backend_text_free(ui->cancel_btn);
 }
@@ -283,11 +313,13 @@ static error_t cpymo_msgbox_ui_default_confirm(
 	return CPYMO_ERR_SUCC;
 }
 
-error_t cpymo_msgbox_ui_enter(
+static error_t cpymo_msgbox_ui_enter_with_detail(
 	cpymo_engine *e, 
 	cpymo_str message, 
 	error_t(*okcancel_callback)(cpymo_engine *e, void *data, bool is_confirm), 
-	void * okcancel_callback_data)
+	void *okcancel_callback_data,
+	const char *detail,
+	const char *back_label)
 {
 	cpymo_msgbox_ui *ui = NULL;
 	error_t err = cpymo_ui_enter(
@@ -300,6 +332,8 @@ error_t cpymo_msgbox_ui_enter(
 	CPYMO_THROW(err);
 
 	ui->message = NULL;
+	ui->detail = NULL;
+	ui->message_spacing = 0;
 	ui->confirm_btn = NULL;
 	ui->cancel_btn = NULL;
 	ui->cancel_btn_width = 0;
@@ -307,18 +341,37 @@ error_t cpymo_msgbox_ui_enter(
 
 	ui->okcancel_callback = okcancel_callback;
 	ui->okcancel_callback_data = okcancel_callback_data;
-	ui->selection = okcancel_callback ? -1 : 0;
+	const cpymo_localization *l = cpymo_localization_get(e);
+	ui->cancel_label = back_label ? back_label : l->msgbox_cancel;
+	ui->legacy_choice = back_label != NULL;
+	ui->ignore_opening_ok_release = ui->legacy_choice && e->input.ok;
+	ui->selection = ui->legacy_choice ? 1 : okcancel_callback ? -1 : 0;
 	cpymo_key_hold_init(&ui->mouse_button, e->input.mouse_button);
 
 	float fontsize = cpymo_gameconfig_font_size(&e->gameconfig);
+	float message_fontsize = fontsize;
+	if (detail) {
+		float width_first = cpymo_backend_text_width(message, fontsize);
+		float width_second = cpymo_backend_text_width(cpymo_str_pure(detail), fontsize);
+		float widest = width_first > width_second ? width_first : width_second;
+		float available = (float)e->gameconfig.imagesize_w * 0.96f;
+		if (widest > available) message_fontsize *= available / widest;
+		ui->message_spacing = message_fontsize * 1.4f;
+	}
 
-	err = cpymo_backend_text_create(&ui->message, &ui->message_width, message, fontsize);
+	err = cpymo_backend_text_create(&ui->message, &ui->message_width, message, message_fontsize);
 	if (err != CPYMO_ERR_SUCC) {
 		cpymo_ui_exit(e);
 		return err;
 	}
 
-	const cpymo_localization *l = cpymo_localization_get(e);
+	if (detail) {
+		err = cpymo_backend_text_create(&ui->detail, &ui->detail_width, cpymo_str_pure(detail), message_fontsize);
+		if (err != CPYMO_ERR_SUCC) {
+			cpymo_ui_exit(e);
+			return err;
+		}
+	}
 
 	err = cpymo_backend_text_create(
 		&ui->confirm_btn, 
@@ -334,7 +387,7 @@ error_t cpymo_msgbox_ui_enter(
 		err = cpymo_backend_text_create(
 			&ui->cancel_btn,
 			&ui->cancel_btn_width,
-			cpymo_str_pure(l->msgbox_cancel),
+			cpymo_str_pure(ui->cancel_label),
 			fontsize);
 		if (err != CPYMO_ERR_SUCC) {
 			cpymo_ui_exit(e);
@@ -346,9 +399,27 @@ error_t cpymo_msgbox_ui_enter(
 	}
 
 	cpymo_engine_extract_text(e, message);
-	cpymo_engine_extract_text_cstr(e, l->msgbox_cancel);
+	if (detail) cpymo_engine_extract_text_cstr(e, detail);
+	cpymo_engine_extract_text_cstr(e, ui->cancel_label);
 	cpymo_engine_extract_text_submit(e);
 
 	return err;
 }
+
+error_t cpymo_msgbox_ui_enter(
+	cpymo_engine *e, cpymo_str message,
+	error_t (*callback)(cpymo_engine *, void *, bool), void *data)
+{
+	return cpymo_msgbox_ui_enter_with_detail(e, message, callback, data, NULL, NULL);
+}
+
+#ifdef GARLIC_NO_FFMPEG
+error_t cpymo_msgbox_ui_enter_legacy(
+	cpymo_engine *e, error_t (*choose)(cpymo_engine *, void *, bool))
+{
+	const cpymo_localization *l = cpymo_localization_get(e);
+	return cpymo_msgbox_ui_enter_with_detail(e, cpymo_str_pure(l->legacy_mo_title),
+		choose, NULL, l->legacy_mo_detail, l->legacy_mo_back);
+}
+#endif
 

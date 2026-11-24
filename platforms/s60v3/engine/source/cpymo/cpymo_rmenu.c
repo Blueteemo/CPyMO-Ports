@@ -43,6 +43,7 @@ typedef struct {
     char clock_label[6];
     float clock_ink[4], clock_elapsed;
     float panel[4];
+    int bg_band_start, bg_band_end;
 #endif
 
 	bool alive;
@@ -103,6 +104,42 @@ static error_t cpymo_rmenu_update(cpymo_engine *e, void *ui_data, float dt)
 	return CPYMO_ERR_SUCC;
 }
 
+#if defined(S60V3) && !defined(DISABLE_IMAGE_SCALING)
+static void cpymo_rmenu_draw_skin(const cpymo_rmenu *r)
+{
+    const float x = r->panel[0], y = r->panel[1];
+    const int width = (int)r->panel[2], height = (int)r->panel[3];
+    const enum cpymo_backend_image_draw_type type = cpymo_backend_image_draw_type_ui_element_bg;
+    if (width <= 0 || height <= 0) return;
+
+    const float scale = (float)width / r->bg_w;
+    if (r->bg_band_end > r->bg_band_start && r->bg_h * scale + 0.5f < height) {
+        const int top = (int)(r->bg_band_start * scale + 0.5f);
+        const int bottom = (int)((r->bg_h - r->bg_band_end) * scale + 0.5f);
+        const int middle = height - top - bottom;
+        if (top > 0 && bottom > 0 && middle > 0) {
+            cpymo_backend_image_draw(x, y, width, top, r->bg,
+                0, 0, r->bg_w, r->bg_band_start, 1.0f, type);
+            cpymo_backend_image_draw(x, y + top, width, middle, r->bg,
+                0, r->bg_band_start, r->bg_w, 1, 1.0f, type);
+            cpymo_backend_image_draw(x, y + top + middle, width, bottom, r->bg,
+                0, r->bg_band_end, r->bg_w, r->bg_h - r->bg_band_end, 1.0f, type);
+            return;
+        }
+    }
+
+    /* Fill the panel with a proportional center crop for illustrated skins. */
+    int source_w = r->bg_w, source_h = r->bg_h;
+    if (source_h * scale < height)
+        source_w = (int)cpymo_utils_clampf((float)source_h * width / height + 0.5f, 1, source_w);
+    else
+        source_h = (int)cpymo_utils_clampf((float)source_w * height / width + 0.5f, 1, source_h);
+    cpymo_backend_image_draw(x, y, width, height, r->bg,
+        (r->bg_w - source_w) / 2, (r->bg_h - source_h) / 2,
+        source_w, source_h, 1.0f, type);
+}
+#endif
+
 static void cpymo_rmenu_draw(const cpymo_engine *e, const void *ui_data)
 {
 	const cpymo_rmenu *r = (const cpymo_rmenu *)ui_data;
@@ -145,6 +182,8 @@ static void cpymo_rmenu_draw(const cpymo_engine *e, const void *ui_data)
 			r->bg_h,
 			1.0f,
 			cpymo_backend_image_draw_type_ui_element_bg);
+#elif defined(S60V3)
+        cpymo_rmenu_draw_skin(r);
 #else
 		cpymo_backend_image_draw(
 			bg_xywh[0],
@@ -170,7 +209,7 @@ static void cpymo_rmenu_draw(const cpymo_engine *e, const void *ui_data)
     if (r->clock_text) {
         const float x = bg_xywh[0] + S60_RMENU_CLOCK_INSET - r->clock_ink[0];
         const float y = bg_xywh[1] + S60_RMENU_CLOCK_INSET - r->clock_ink[1];
-        cpymo_s60_text_draw_plain(r->clock_text, x, y, cpymo_color_white);
+        cpymo_s60_text_draw_plain(r->clock_text, x, y, cpymo_color_white, 1.0f);
     }
 #endif
 	cpymo_select_img_draw(&r->menu, e->gameconfig.imagesize_w, e->gameconfig.imagesize_h, false);
@@ -303,6 +342,9 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
 	cpymo_wait_reset(&rmenu->menu_waiter);
 
 	rmenu->bg = NULL;
+#ifdef S60V3
+    rmenu->bg_band_start = rmenu->bg_band_end = 0;
+#endif
 	err = cpymo_assetloader_load_system_image(
 		&rmenu->bg,
 		&rmenu->bg_w,
@@ -328,7 +370,10 @@ error_t cpymo_rmenu_enter(cpymo_engine *e)
 		}
 	}
 #ifdef S60V3
-	else cpymo_s60_move_menu_title(rmenu->bg, (int)(rmenu->bg_h * S60_RMENU_HEADER_FRACTION));
+    else {
+        cpymo_s60_move_menu_title(rmenu->bg, (int)(rmenu->bg_h * S60_RMENU_HEADER_FRACTION));
+        cpymo_s60_menu_stretch_band(rmenu->bg, &rmenu->bg_band_start, &rmenu->bg_band_end);
+    }
 #endif
 
 	err = cpymo_select_img_configuare_begin(

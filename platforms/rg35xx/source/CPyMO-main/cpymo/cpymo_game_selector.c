@@ -44,15 +44,20 @@ static void cpymo_game_selector_draw_node(const cpymo_engine *e, const void *nod
 	cpymo_game_selector_item *item = (cpymo_game_selector_item *)node_to_draw;
 	
 	float game_icon_size = 3 * (float)e->gameconfig.fontsize;
+	float icon_y = y + 6;
+#ifdef GARLIC_NO_FFMPEG
+	float row_center = y + cpymo_list_ui_node_height(e) * 0.5f;
+	icon_y = row_center - game_icon_size * 0.5f;
+#endif
 	if (item->icon) {
-		cpymo_backend_image_draw(16, y + 6, game_icon_size, game_icon_size, item->icon, 0, 0,
+		cpymo_backend_image_draw(16, icon_y, game_icon_size, game_icon_size, item->icon, 0, 0,
 			item->icon_w, item->icon_h, 1.0f, cpymo_backend_image_draw_type_ui_element);
 	}
 
 	if (item->gametitle) {
         float baseline=y+(float)e->gameconfig.fontsize;
 #ifdef GARLIC_NO_FFMPEG
-        baseline=garlic_text_centered_baseline(item->gametitle,y+(game_icon_size+8.0f)/2.0f);
+        baseline=garlic_text_centered_baseline(item->gametitle,row_center);
 #endif
 		cpymo_backend_text_draw(
 			item->gametitle, 28 + game_icon_size, baseline, cpymo_color_white, 1.0f,

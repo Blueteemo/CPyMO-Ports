@@ -244,6 +244,31 @@ void cpymo_s60_move_menu_title(cpymo_backend_image image, int header_height)
     }
     SDL_UnlockSurface(skin);
 }
+
+bool cpymo_s60_menu_stretch_band(cpymo_backend_image image, int *first, int *end)
+{
+    SDL_Surface *skin = (SDL_Surface *)image;
+    if (skin->format->BytesPerPixel != 4 || SDL_LockSurface(skin) != 0) return false;
+
+    const Uint8 *pixels = (const Uint8 *)skin->pixels;
+    const size_t row_bytes = (size_t)skin->w * 4;
+    const int middle = skin->h / 2;
+    const Uint8 *row = pixels + (size_t)middle * skin->pitch;
+    int start = middle, stop = middle + 1;
+    while (start > 0 && !memcmp(row, pixels + (size_t)(start - 1) * skin->pitch, row_bytes))
+        --start;
+    while (stop < skin->h && !memcmp(row, pixels + (size_t)stop * skin->pitch, row_bytes))
+        ++stop;
+    SDL_UnlockSurface(skin);
+
+    /* As on NDS, require a substantial band bounded by top and bottom art.
+       Compare all four channels across the row, including the side edges. */
+    if (start == 0 || stop == skin->h || stop - start < 4 || (stop - start) * 3 < skin->h)
+        return false;
+    *first = start;
+    *end = stop;
+    return true;
+}
 #endif /* S60V3 */
 
 error_t cpymo_backend_image_init(void)

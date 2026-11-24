@@ -24,8 +24,13 @@ typedef struct {
 	float confirm_btn_width;
 	cpymo_backend_text cancel_btn;
 	float cancel_btn_width;
+	const char *cancel_label;
 #ifdef S60V3
 	bool outline_unselected;
+	bool legacy_choice;
+	bool ignore_initial_ok_release;
+	cpymo_backend_text message_detail;
+	float message_ink[2][4];
 #endif
 
 	int selection;
@@ -63,6 +68,14 @@ static void cpymo_msgbox_ui_get_btn_rect(
 	out_xywh[3] = btn_height;
 }
 
+static float cpymo_msgbox_ui_confirm_y(const cpymo_msgbox_ui *ui, float screen_h)
+{
+#ifdef S60V3
+	if (ui->message_detail) return screen_h * 0.5f;
+#endif
+	return ui->cancel_btn ? screen_h * 0.5f : screen_h * 0.618f;
+}
+
 static int cpymo_msgbox_ui_get_mouse_selection(cpymo_engine *e)
 {
 	cpymo_msgbox_ui *ui = (cpymo_msgbox_ui *)cpymo_ui_data(e);
@@ -85,7 +98,7 @@ static int cpymo_msgbox_ui_get_mouse_selection(cpymo_engine *e)
 			btn_width,
 			fontsize,
 			screen_w,
-			ui->cancel_btn ? screen_h * 0.5f : screen_h * 0.618f);
+			cpymo_msgbox_ui_confirm_y(ui, screen_h));
 
 		float x = input->mouse_x;
 		float y = input->mouse_y;
@@ -134,7 +147,7 @@ static error_t cpymo_msgbox_ui_update(cpymo_engine *e, void *ui_data, float dt)
 
 		cpymo_engine_request_redraw(e);
 
-		cpymo_backend_text_extract(ui->selection == 0 ? l->msgbox_ok : l->msgbox_cancel);
+		cpymo_backend_text_extract(ui->selection == 0 ? l->msgbox_ok : ui->cancel_label);
 	}
 	else if (CPYMO_INPUT_JUST_PRESSED(e, ok)) {
 		if (ui->cancel_btn == NULL) {
@@ -148,6 +161,12 @@ static error_t cpymo_msgbox_ui_update(cpymo_engine *e, void *ui_data, float dt)
 		cpymo_engine_request_redraw(e);
 	}
 	else if (CPYMO_INPUT_JUST_RELEASED(e, ok) && ui->selection != -1) {
+#ifdef S60V3
+		if (ui->ignore_initial_ok_release) {
+			ui->ignore_initial_ok_release = false;
+			return CPYMO_ERR_SUCC;
+		}
+#endif
 		cpymo_engine_request_redraw(e);
 		return cpymo_msgbox_ui_okcancel_finish(e, !ui->selection);
 	}
@@ -165,7 +184,7 @@ static error_t cpymo_msgbox_ui_update(cpymo_engine *e, void *ui_data, float dt)
 
 			if (ui->selection >= 0)
 				cpymo_backend_text_extract(
-					ui->selection == 0 ? l->msgbox_ok : l->msgbox_cancel);
+					ui->selection == 0 ? l->msgbox_ok : ui->cancel_label);
 		}
 	}
 
@@ -249,7 +268,24 @@ static void cpymo_msgbox_ui_draw(const cpymo_engine *e, const void *ui_data)
 
 	float x = (screen_w - ui->message_width) / 2;
 	float y = screen_h * 0.3f + fontsize / 2;
-	cpymo_backend_text_draw(ui->message, x, y, cpymo_color_white, 1.0f, cpymo_backend_image_draw_type_ui_element);
+#ifdef S60V3
+	if (ui->message_detail) {
+		const float line_spacing = ui->legacy_choice
+			? cpymo_s60_font_baseline(fontsize, false) : fontsize * 1.5f;
+		const cpymo_backend_text lines[] = { ui->message, ui->message_detail };
+		for (int i = 0; i < 2; ++i) {
+			const float *ink = ui->message_ink[i];
+			const float left = (screen_w - ink[0] - ink[2]) * 0.5f;
+			const float center_y = screen_h * 0.3f + (i - 0.5f) * line_spacing;
+			const float baseline = ui->legacy_choice ? y + i * line_spacing
+				: center_y - (ink[1] + ink[3]) * 0.5f;
+			cpymo_backend_text_draw(lines[i], left, baseline, cpymo_color_white, 1.0f,
+				cpymo_backend_image_draw_type_ui_element);
+		}
+	} else
+#endif
+		cpymo_backend_text_draw(ui->message, x, y, cpymo_color_white, 1.0f,
+			cpymo_backend_image_draw_type_ui_element);
 
 	bool key_down = e->input.mouse_button || e->input.ok;
 	bool outline_unselected = false;
@@ -266,7 +302,7 @@ static void cpymo_msgbox_ui_draw(const cpymo_engine *e, const void *ui_data)
 		fontsize, 
 		screen_w, 
 		screen_h,
-		ui->cancel_btn ? screen_h * 0.5f : screen_h * 0.618f,
+		cpymo_msgbox_ui_confirm_y(ui, screen_h),
 		ui->selection == 0,
 		key_down,
 		outline_unselected);
@@ -295,12 +331,18 @@ static void cpymo_msgbox_ui_delete(struct cpymo_engine *e, void *ui_data)
 	cpymo_msgbox_ui *ui = (cpymo_msgbox_ui *)ui_data;
 
 	if (ui->okcancel_callback) {
+#ifdef S60V3
+		if (!ui->legacy_choice)
+#endif
 		ui->okcancel_callback(e, ui->okcancel_callback_data, false);
 		ui->okcancel_callback = NULL;
 		ui->okcancel_callback_data = NULL;
 	}
 	
 	if (ui->message) cpymo_backend_text_free(ui->message);
+#ifdef S60V3
+	if (ui->message_detail) cpymo_backend_text_free(ui->message_detail);
+#endif
 	if (ui->confirm_btn) cpymo_backend_text_free(ui->confirm_btn);
 	if (ui->cancel_btn) cpymo_backend_text_free(ui->cancel_btn);
 }
@@ -311,11 +353,12 @@ static error_t cpymo_msgbox_ui_default_confirm(
 	return CPYMO_ERR_SUCC;
 }
 
-error_t cpymo_msgbox_ui_enter(
+static error_t cpymo_msgbox_ui_enter_with_size(
 	cpymo_engine *e, 
 	cpymo_str message, 
 	error_t(*okcancel_callback)(cpymo_engine *e, void *data, bool is_confirm), 
-	void * okcancel_callback_data)
+	void *okcancel_callback_data,
+	float fontsize, bool split_notice, const char *back_label)
 {
 	cpymo_msgbox_ui *ui = NULL;
 	error_t err = cpymo_ui_enter(
@@ -332,31 +375,59 @@ error_t cpymo_msgbox_ui_enter(
 	ui->cancel_btn = NULL;
 	ui->cancel_btn_width = 0;
 	ui->confirm_btn_width = 0;
+	const cpymo_localization *l = cpymo_localization_get(e);
+	ui->cancel_label = back_label ? back_label : l->msgbox_cancel;
 #ifdef S60V3
 	ui->outline_unselected = false;
+	ui->legacy_choice = back_label != NULL;
+	ui->ignore_initial_ok_release = ui->legacy_choice && e->input.ok;
+	ui->message_detail = NULL;
 #endif
 
 	ui->okcancel_callback = okcancel_callback;
 	ui->okcancel_callback_data = okcancel_callback_data;
-	ui->selection = okcancel_callback ? -1 : 0;
+	ui->selection = back_label ? 1 : okcancel_callback ? -1 : 0;
 	cpymo_key_hold_init(&ui->mouse_button, e->input.mouse_button);
 
-	float fontsize = cpymo_gameconfig_font_size(&e->gameconfig);
+	cpymo_str first_line = message;
 #ifdef S60V3
-	/* Fit longer notices into the viewport without moving the game font. */
-	while (fontsize > 12.0f && cpymo_backend_text_width(message, fontsize) >
-			(float)e->gameconfig.imagesize_w - 16.0f)
+	cpymo_str detail = { NULL, 0 };
+	if (split_notice && message.len) {
+		const char *newline = memchr(message.begin, '\n', message.len);
+		if (newline && newline != message.begin && newline + 1 < message.begin + message.len) {
+			first_line.len = (size_t)(newline - message.begin);
+			detail.begin = newline + 1;
+			detail.len = message.len - first_line.len - 1;
+		}
+	}
+	/* Fit each line separately so a notice keeps the same scale as other dialogs. */
+	const float max_width = (float)e->gameconfig.imagesize_w - 16.0f;
+	while (fontsize > 12.0f && (cpymo_backend_text_width(first_line, fontsize) > max_width ||
+			(detail.len && cpymo_backend_text_width(detail, fontsize) > max_width)))
 		fontsize -= 1.0f;
+#else
+	(void)split_notice;
 #endif
 	ui->font_size = fontsize;
 
-	err = cpymo_backend_text_create(&ui->message, &ui->message_width, message, fontsize);
+	err = cpymo_backend_text_create(&ui->message, &ui->message_width, first_line, fontsize);
 	if (err != CPYMO_ERR_SUCC) {
 		cpymo_ui_exit(e);
 		return err;
 	}
 
-	const cpymo_localization *l = cpymo_localization_get(e);
+#ifdef S60V3
+	if (detail.len) {
+		float detail_width;
+		err = cpymo_backend_text_create(&ui->message_detail, &detail_width, detail, fontsize);
+		if (err != CPYMO_ERR_SUCC) {
+			cpymo_ui_exit(e);
+			return err;
+		}
+		cpymo_s60_text_ink(ui->message, ui->message_ink[0]);
+		cpymo_s60_text_ink(ui->message_detail, ui->message_ink[1]);
+	}
+#endif
 
 	err = cpymo_backend_text_create(
 		&ui->confirm_btn, 
@@ -372,7 +443,7 @@ error_t cpymo_msgbox_ui_enter(
 		err = cpymo_backend_text_create(
 			&ui->cancel_btn,
 			&ui->cancel_btn_width,
-			cpymo_str_pure(l->msgbox_cancel),
+			cpymo_str_pure(ui->cancel_label),
 			fontsize);
 		if (err != CPYMO_ERR_SUCC) {
 			cpymo_ui_exit(e);
@@ -384,13 +455,38 @@ error_t cpymo_msgbox_ui_enter(
 	}
 
 	cpymo_engine_extract_text(e, message);
-	cpymo_engine_extract_text_cstr(e, l->msgbox_cancel);
+	cpymo_engine_extract_text_cstr(e, ui->cancel_label);
 	cpymo_engine_extract_text_submit(e);
 
 	return err;
 }
 
+error_t cpymo_msgbox_ui_enter(
+	cpymo_engine *e,
+	cpymo_str message,
+	error_t(*okcancel_callback)(cpymo_engine *e, void *data, bool is_confirm),
+	void *okcancel_callback_data)
+{
+	return cpymo_msgbox_ui_enter_with_size(e, message, okcancel_callback,
+		okcancel_callback_data, cpymo_gameconfig_font_size(&e->gameconfig), false, NULL);
+}
+
 #ifdef S60V3
+error_t cpymo_msgbox_ui_enter_s60_notice(cpymo_engine *e, cpymo_str message)
+{
+	/* System notices follow the UI scale, independently of the dialogue size. */
+	const float fontsize = 16.0f * (float)e->gameconfig.imagesize_h / 240.0f;
+	return cpymo_msgbox_ui_enter_with_size(e, message, NULL, NULL, fontsize, true, NULL);
+}
+
+error_t cpymo_msgbox_ui_enter_s60_legacy_choice(cpymo_engine *e, cpymo_str message,
+	error_t (*choose)(cpymo_engine *, void *, bool))
+{
+	const float fontsize = 16.0f * (float)e->gameconfig.imagesize_h / 240.0f;
+	return cpymo_msgbox_ui_enter_with_size(e, message, choose, NULL, fontsize, true,
+		cpymo_localization_get(e)->legacy_notice_back);
+}
+
 void cpymo_msgbox_ui_enable_button_outline(cpymo_engine *e)
 {
 	cpymo_msgbox_ui *ui = cpymo_ui_data(e);

@@ -224,11 +224,12 @@ void cpymo_backend_text_draw(
 }
 
 #ifdef S60V3
-void cpymo_s60_text_draw_plain(cpymo_backend_text text, float x, float baseline, cpymo_color color)
+void cpymo_s60_text_draw_plain(cpymo_backend_text text, float x, float baseline,
+    cpymo_color color, float alpha)
 {
     cpymo_backend_text_impl *t = (cpymo_backend_text_impl *)text;
     if (SDL_LockSurface(framebuffer) == -1) return;
-    cpymo_backend_text_draw_internal(t, x, baseline - t->baseline, color, 1.0f);
+    cpymo_backend_text_draw_internal(t, x, baseline - t->baseline, color, alpha);
     SDL_UnlockSurface(framebuffer);
 }
 #endif

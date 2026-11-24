@@ -1,0 +1,12 @@
+--- a/arch/arm/include/asm/thread_info.h
++++ b/arch/arm/include/asm/thread_info.h
+@@ -100,7 +100,8 @@
+ 
+ static inline struct thread_info *current_thread_info(void)
+ {
+-	register unsigned long sp asm ("sp");
++	unsigned long sp;
++	asm ("mov %0, sp" : "=r" (sp));
+ 	return (struct thread_info *)(sp & ~(THREAD_SIZE - 1));
+ }
+ 

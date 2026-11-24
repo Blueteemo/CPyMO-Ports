@@ -37,6 +37,7 @@ struct cpymo_select_img {
 	bool save_enabled;
 #ifdef S60V3
     bool confirmed_image_menu;
+    bool text_without_shadow;
 #endif
 
 	cpymo_backend_image sel_highlight;
@@ -97,6 +98,7 @@ static inline void cpymo_select_img_init(cpymo_select_img *select_img)
 	select_img->selections = NULL;
 #ifdef S60V3
     select_img->confirmed_image_menu = false;
+    select_img->text_without_shadow = false;
 #endif
 	select_img->select_img_image = NULL;
 	select_img->sel_highlight = NULL;

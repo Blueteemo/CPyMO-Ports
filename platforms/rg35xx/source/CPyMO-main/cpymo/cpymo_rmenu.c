@@ -100,6 +100,10 @@ static error_t cpymo_rmenu_update(cpymo_engine *e, void *ui_data, float dt)
 {
 	cpymo_rmenu *r = (cpymo_rmenu *)ui_data;
 #ifdef GARLIC_NO_FFMPEG
+    if (CPYMO_INPUT_JUST_RELEASED(e, cancel)) {
+        cpymo_ui_exit(e);
+        return CPYMO_ERR_SUCC;
+    }
     r->clock_poll+=dt;
     if(r->clock_poll>=1.0f){r->clock_poll=0;garlic_rmenu_clock(e,r,time(NULL));}
 #endif

@@ -1,23 +1,16 @@
 <p align="center">
-  <img src="assets/branding/pymo-long-logo.webp" alt="PyMO — Python Memories Off" width="720">
+  <img src="assets/branding/pymo-long-logo.webp" alt="PyMO — Python Memories Off" width="640">
 </p>
 
 # CPyMO Ports
 
-**CPyMO 视觉小说引擎的开源移植项目，首发支持 Symbian S60v3 与初代 RG35XX（GarlicOS）。**
+**CPyMO 视觉小说引擎的开源移植项目，支持 Symbian S60v3 与初代 RG35XX（GarlicOS）。**
 
 使用 Nintendo DS、DS Lite 或 DSi 的玩家，请前往 [CPyMO for NDS](https://github.com/Blueteemo/CPyMO)。
 
 ## 下载
 
-| 平台 | 1.0.0 安装包 | 安装要求 |
-| --- | --- | --- |
-| **Symbian S60v3** | [S60v3 签名安装包](https://github.com/Blueteemo/CPyMO-Ports/releases/download/v1.0.0/CPyMO_S60v3_1.0.0_Installer.zip) | [P.I.P.S. 1.7.0 或更新版本](#symbian-s60v3) |
-| **初代 RG35XX** | [RG35XX GarlicOS 安装包](https://github.com/Blueteemo/CPyMO-Ports/releases/download/v1.0.0/CPyMO_RG35XX_1.0.0_GarlicOS.zip) | [GarlicOS 1.4.9](https://www.patreon.com/blackseraph/posts/garlicos-for-76561333) |
-
-[发行说明](https://github.com/Blueteemo/CPyMO-Ports/releases/tag/v1.0.0) · [完整源码](https://github.com/Blueteemo/CPyMO-Ports/releases/download/v1.0.0/CPyMO_1.0.0_Source.zip) · [Symbian SDL 重链接包](https://github.com/Blueteemo/CPyMO-Ports/releases/download/v1.0.0/CPyMO_S60v3_1.0.0_SDL_Relink_Handoff.zip) · [SHA-256 校验清单](https://github.com/Blueteemo/CPyMO-Ports/releases/download/v1.0.0/SHA256SUMS.txt)
-
-游戏文件由玩家自行准备。
+请从 [GitHub Releases](https://github.com/Blueteemo/CPyMO-Ports/releases) 按平台下载安装包。发行页同时提供更新说明、校验值和对应源码附件。
 
 ## 安装与开始使用
 
@@ -25,15 +18,15 @@
 
 1. **先装 P.I.P.S.** 在手机上打开下载的 `.sis` 并安装。已装 1.7.0 或更新版本可跳过。[下载 P.I.P.S.（第三方镜像）](https://files.3zet.net/Operation%20Symbian/Libs%20and%20Tools/pips_s60_1_7_SS.sis)
    - 如果安装 P.I.P.S. 时提示证书尚未生效或已过期，请将手机日期临时调到 2015 年，装完后再改回当前日期。
-2. **再装 CPyMO。** 解压 CPyMO 安装包，在手机上打开其中的 `.sisx` 并安装。[下载 S60v3 安装包](https://github.com/Blueteemo/CPyMO-Ports/releases/download/v1.0.0/CPyMO_S60v3_1.0.0_Installer.zip)
+2. **再装 CPyMO。** 解压 CPyMO 安装包，在手机上打开其中的 `.sisx` 并安装。[前往发行页](https://github.com/Blueteemo/CPyMO-Ports/releases)
 
 把游戏文件夹放进 `E:\Python\` 或 `C:\Data\Python\`，从手机菜单打开 CPyMO，选中游戏后按左软键进入。
 
 签名安装选项见包内说明。[P.I.P.S. 来源与 SHA-256](platforms/s60v3/engine/Dependencies/PIPS_1.7.0.txt)
 
-开场图居中版沿用 1.0.0，使用新的自签名证书。如果手机拒绝覆盖安装，先备份游戏目录内的 `save` 文件夹，再通过程序管理卸载 CPyMO 后重新安装。
+安装包使用 `CPyMO S60v3` 自签名证书。如果手机拒绝覆盖安装，先备份游戏目录内的 `save` 文件夹，再通过程序管理卸载 CPyMO 后重新安装。1.1.0 已在 Nokia E63 上验证。
 
-首发签名包曾在 Nokia 5320d-1（S60v3 FP2）模拟器通过安装、冷启动、进入游戏列表和挂断键退出验证。居中版已校验签名及安装载荷，E63 实机覆盖安装尚待验证。
+游戏视频由系统播放器打开；播放完从播放器按返回键继续游戏。
 
 ### 初代 RG35XX
 
@@ -41,7 +34,7 @@
 2. 将每款游戏的完整目录放入 `Roms/APPS/CPyMO/games/`。
 3. 在 GarlicOS 的 **APPS** 中打开 CPyMO，从游戏列表选择游戏。
 
-游戏内提供两档字号、宽屏遮罩和两行对白存档预览。[RG35XX 安装指南](platforms/rg35xx/docs/INSTALL_RG35XX.md)
+游戏内提供两档字号、宽屏遮罩和两行对白存档预览。1.1.0 支持 H.264 视频、AAC 音频的 MP4 硬解播放，需配套运行库。[RG35XX 安装指南](platforms/rg35xx/docs/INSTALL_RG35XX.md)
 
 ## 源码、作者与许可证
 

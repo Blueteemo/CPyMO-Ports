@@ -28,13 +28,6 @@ static void cpymo_logo() {
 	puts("");
 }
 
-static error_t cpymo_engine_non_pymo_warning(cpymo_engine *e) 
-{
-	const cpymo_localization *l = cpymo_localization_get(e);
-	return cpymo_msgbox_ui_enter(
-		e, cpymo_str_pure(l->mo2pymo_required), NULL, NULL);
-}
-
 static error_t cpymo_engine_version_warning(cpymo_engine *e) 
 {
 	const cpymo_localization *l = cpymo_localization_get(e);
@@ -51,6 +44,31 @@ static error_t cpymo_engine_version_warning(cpymo_engine *e)
 	free(out);
 
 	return err;
+}
+
+#ifdef GARLIC_NO_FFMPEG
+extern void garlic_request_library(void);
+
+static error_t cpymo_engine_legacy_choice(cpymo_engine *e, void *data, bool proceed)
+{
+	(void)data;
+	if (!proceed) {
+		garlic_request_library();
+	} else if (!cpymo_pymo_version_compatible(e->gameconfig.engineversion, cpymo_pymo_version_current)) {
+		cpymo_wait_callback_nextframe(&e->wait, &cpymo_engine_version_warning);
+	}
+	return CPYMO_ERR_SUCC;
+}
+#endif
+
+static error_t cpymo_engine_non_pymo_warning(cpymo_engine *e)
+{
+#ifdef GARLIC_NO_FFMPEG
+	if (cpymo_str_equals_str_ignore_case(cpymo_str_pure(e->gameconfig.scripttype), "mo"))
+		return cpymo_msgbox_ui_enter_legacy(e, &cpymo_engine_legacy_choice);
+#endif
+	const cpymo_localization *l = cpymo_localization_get(e);
+	return cpymo_msgbox_ui_enter(e, cpymo_str_pure(l->mo2pymo_required), NULL, NULL);
 }
 
 error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir)
@@ -205,18 +223,11 @@ error_t cpymo_engine_init(cpymo_engine *out, const char *gamedir)
 	cpymo_logo();
 
 	// checks
-	if (out->gameconfig.scripttype[0] != 'p'
-		|| out->gameconfig.scripttype[1] != 'y'
-		|| out->gameconfig.scripttype[2] != 'm'
-		|| out->gameconfig.scripttype[3] != '\0') {
-		cpymo_wait_callback_after_seconds(&out->wait, 0, &cpymo_engine_non_pymo_warning);
-	}
-
-	if (!cpymo_pymo_version_compatible(
+	if (!cpymo_gameconfig_scripttype_is_pymo(&out->gameconfig)) {
+		cpymo_wait_callback_nextframe(&out->wait, &cpymo_engine_non_pymo_warning);
+	} else if (!cpymo_pymo_version_compatible(
 			out->gameconfig.engineversion, cpymo_pymo_version_current)) {
-		cpymo_wait_callback_after_seconds(
-			&out->wait, 0, 
-			&cpymo_engine_version_warning);
+		cpymo_wait_callback_nextframe(&out->wait, &cpymo_engine_version_warning);
 	}
 
 	return CPYMO_ERR_SUCC;
@@ -348,7 +359,8 @@ error_t cpymo_engine_update(cpymo_engine *engine, float delta_time_sec, bool * r
 			delta_time_sec);
 		CPYMO_THROW(err);
 
-		if (!cpymo_wait_is_wating(&engine->wait)) {
+		/* A callback can open a modal before the next script instruction. */
+		if (!cpymo_ui_enabled(engine) && !cpymo_wait_is_wating(&engine->wait)) {
 			if (engine->interpreter)
 				err = cpymo_interpreter_execute_step(
 					engine->interpreter, engine);

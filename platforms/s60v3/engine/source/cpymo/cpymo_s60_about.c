@@ -11,7 +11,7 @@ static const struct {
     float center_y;
 } about_lines[about_line_count] = {
     {"PyMO / CPyMO", 25, 30},
-    {"S60v3  1.0.0", 16, 56},
+    {"S60v3  1.1.0", 16, 56},
     {"S60v3 移植：千岚之夏（Blueteemo）", 16, 90},
     {"PyMO：chen_xin_ming", 16, 115},
     {"CPyMO：Seng Jik 及贡献者", 16, 140},

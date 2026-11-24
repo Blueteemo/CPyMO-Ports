@@ -387,8 +387,91 @@ error_t cpymo_movie_play(cpymo_engine * e, cpymo_str videoname)
 #endif
 
 #ifdef DISABLE_MOVIE
-error_t cpymo_movie_play(cpymo_engine * e, cpymo_str videoname)
+#ifdef S60V3
+#include "../cpymo-backends/sdl1/cpymo_s60_app.h"
+#include "cpymo_localization.h"
+#include "cpymo_msgbox_ui.h"
+#include "cpymo_ui.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+void cpymo_backend_audio_free(void);
+
+typedef struct {
+    char *path;
+    bool resume_audio;
+} cpymo_s60_movie_ui;
+
+static bool s60_movie_time_reset;
+
+bool cpymo_s60_movie_take_time_reset(void)
 {
+    const bool reset = s60_movie_time_reset;
+    s60_movie_time_reset = false;
+    return reset;
+}
+
+static void cpymo_s60_movie_delete(cpymo_engine *e, void *data)
+{
+    (void)e;
+    cpymo_s60_movie_ui *movie = data;
+    cpymo_s60_movie_close();
+    free(movie->path);
+}
+
+static error_t cpymo_s60_movie_update(cpymo_engine *e, void *data, float dt)
+{
+    (void)dt;
+    cpymo_s60_movie_ui *movie = data;
+    int status;
+    if (movie->path) {
+        printf("[Video] opening %s\n", movie->path);
+        fflush(stdout);
+        cpymo_audio_se_stop(e);
+        cpymo_audio_vo_stop(e);
+        movie->resume_audio = cpymo_audio_enabled(e);
+        if (movie->resume_audio) cpymo_backend_audio_free();
+        puts("[Video] launching system player.");
+        fflush(stdout);
+        status = cpymo_s60_movie_start(movie->path);
+        free(movie->path);
+        movie->path = NULL;
+        if (status == 0) return CPYMO_ERR_SUCC;
+    } else if (!cpymo_s60_movie_result(&status)) {
+        return CPYMO_ERR_SUCC;
+    }
+
+    printf("[Video] result %d, resuming game.\n", status);
+    fflush(stdout);
+    const bool resume_audio = movie->resume_audio;
+    cpymo_ui_exit(e);
+    if (resume_audio) cpymo_s60_movie_resume_audio(e);
+    s60_movie_time_reset = true;
+    e->prev_input = e->input = cpymo_input_snapshot();
+    e->ignore_next_mouse_button_flag = e->input.mouse_button;
+    if (status != 0)
+        return cpymo_msgbox_ui_enter_s60_notice(e,
+            cpymo_str_pure(cpymo_localization_get(e)->movie_open_failed));
+    return CPYMO_ERR_SUCC;
+}
+#endif
+
+error_t cpymo_movie_play(cpymo_engine *e, cpymo_str videoname)
+{
+#ifdef S60V3
+    char *path = NULL;
+    error_t err = cpymo_assetloader_get_video_path(&path, videoname, &e->assetloader);
+    CPYMO_THROW(err);
+    cpymo_s60_movie_ui *movie = NULL;
+    err = cpymo_ui_enter((void **)&movie, e, sizeof(*movie),
+        &cpymo_s60_movie_update, &cpymo_ui_empty_drawer, &cpymo_s60_movie_delete);
+    if (err != CPYMO_ERR_SUCC) {
+        free(path);
+        return err;
+    }
+    movie->path = path;
+    movie->resume_audio = false;
+#endif
 	return CPYMO_ERR_SUCC;
 }
 #endif

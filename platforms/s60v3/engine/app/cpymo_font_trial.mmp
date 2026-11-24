@@ -2,7 +2,7 @@ TARGET cpymo_font_trial.exe
 TARGETTYPE exe
 UID 0x100039ce 0xe93c60a3
 SOURCEPATH .
-SOURCE launcher.cpp
+SOURCE launcher.cpp native_movie.cpp
 SOURCE native_font.cpp
 SOURCE compat.c
 
@@ -13,10 +13,10 @@ SYSTEMINCLUDE \epoc32\include\ESDL
 MACRO S60V3 OPENC
 STATICLIBRARY cpymo_font_trial_core.lib cpymo_font_trial_backend.lib cpymo_font_trial_mp3.lib ESDL_cpymo.lib
 LIBRARY cone.lib eikcore.lib euser.lib apparc.lib fbscli.lib
-LIBRARY eikcoctl.lib eikctl.lib
+LIBRARY eikcoctl.lib eikctl.lib eikdlg.lib
 LIBRARY gdi.lib hal.lib bitgdi.lib apgrfx.lib
 LIBRARY mediaclientaudiostream.lib efsrv.lib ws32.lib bafl.lib avkon.lib
-LIBRARY libc.lib libm.lib libpthread.lib
+LIBRARY libc.lib libm.lib libpthread.lib charconv.lib
 
 START RESOURCE cpymo_font_trial.rss
 HEADER
