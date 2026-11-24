@@ -20,7 +20,7 @@ struct client {
     int child_status;
     char shared_path[PATH_MAX];
     float stuck_time, closing_time;
-    unsigned progress;
+    unsigned progress, bgm_gain;
     bool closing, finished, failed;
 };
 
@@ -108,6 +108,16 @@ static error_t update_movie(cpymo_engine *e, void *data, float elapsed)
     return CPYMO_ERR_SUCC;
 }
 
+enum { NATIVE_BGM_GAIN_ONE = 4096 };
+
+static unsigned native_movie_bgm_gain(const cpymo_engine *e)
+{
+    float volume = cpymo_audio_get_channel_volume(CPYMO_AUDIO_CHANNEL_BGM, &e->audio);
+    if (!(volume > 0.0f)) return 0;
+    if (volume >= 1.0f) return NATIVE_BGM_GAIN_ONE;
+    return (unsigned)(volume * NATIVE_BGM_GAIN_ONE);
+}
+
 error_t garlic_play_native_movie(cpymo_engine *e, const char *path)
 {
     const char *script = getenv("CPYMO_NATIVE_VIDEO_SCRIPT");
@@ -118,6 +128,9 @@ error_t garlic_play_native_movie(cpymo_engine *e, const char *path)
     struct client *c = calloc(1, sizeof(*c));
     if (!c) return CPYMO_ERR_OUT_OF_MEM;
     c->shared = MAP_FAILED;
+    /* The movie owns the UI until exit. Snapshot its BGM level before
+       publishing the client to the frontend audio callback. */
+    c->bgm_gain = native_movie_bgm_gain(e);
     char name[PATH_MAX];
     int len = snprintf(name, sizeof(name), "%s/native-video.shm", runtime);
     if (len < 0 || len >= (int)sizeof(name)) goto fail;
@@ -162,8 +175,14 @@ bool garlic_native_movie_audio(int16_t *buffer, size_t frames)
     if (c) {
         if (native_load(&c->shared->stop))
             memset(buffer, 0, frames*4);
-        else
+        else {
             native_present_audio(c->shared, &c->present, buffer, frames);
+            /* Drain PCM and advance the video clock even at zero gain. */
+            if (c->bgm_gain < NATIVE_BGM_GAIN_ONE)
+                for (size_t i = 0; i < frames * 2; ++i)
+                    buffer[i] = (int16_t)((int32_t)buffer[i] *
+                        (int32_t)c->bgm_gain / NATIVE_BGM_GAIN_ONE);
+        }
     }
     garlic_audio_unlock();
     return c != NULL;
