@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/pymo-long-logo.webp" alt="PyMO — Python Memories Off" width="720">
+  <img src="assets/branding/pymo-long-logo.webp" alt="PyMO — Python Memories Off" width="640">
 </p>
 
 # CPyMO Ports
@@ -11,8 +11,6 @@
 ## 下载
 
 请从 [GitHub Releases](https://github.com/Blueteemo/CPyMO-Ports/releases) 按平台下载安装包。发行页同时提供更新说明、校验值和对应源码附件。
-
-游戏文件由玩家自行准备。
 
 ## 安装与开始使用
 
@@ -36,7 +34,7 @@
 2. 将每款游戏的完整目录放入 `Roms/APPS/CPyMO/games/`。
 3. 在 GarlicOS 的 **APPS** 中打开 CPyMO，从游戏列表选择游戏。
 
-游戏内提供两档字号、宽屏遮罩和两行对白存档预览。[RG35XX 安装指南](platforms/rg35xx/docs/INSTALL_RG35XX.md)
+游戏内提供两档字号、宽屏遮罩和两行对白存档预览。1.1.0 支持 H.264 视频、AAC 音频的 MP4 硬解播放，需配套运行库。[RG35XX 安装指南](platforms/rg35xx/docs/INSTALL_RG35XX.md)
 
 ## 源码、作者与许可证
 
