@@ -116,6 +116,11 @@ const cpymo_localization chs = {
 	&chs_version,
 	"确定要退出游戏吗？",
 	"空白"
+#ifdef GARLIC_NO_FFMPEG
+	, "此游戏使用旧版 MO 脚本"
+	, "请用 PyMO Legacy Converter 转换"
+	, "返回"
+#endif
 };
 
 
@@ -181,6 +186,11 @@ const cpymo_localization cht = {
 	&cht_version,
 	"確定要退出遊戲嗎？",
 	"空白"
+#ifdef GARLIC_NO_FFMPEG
+	, "此遊戲使用舊版 MO 腳本"
+	, "請用 PyMO Legacy Converter 轉換"
+	, "返回"
+#endif
 };
 
 STR_I(enu, save_already_save_to, 32, "Already save to slot %d.");
@@ -244,6 +254,11 @@ const cpymo_localization enu = {
 	&enu_version,
 	"Are you sure you want to quit the game?",
 	"Empty"
+#ifdef GARLIC_NO_FFMPEG
+	, "This game uses legacy MO scripts"
+	, "Convert with PyMO Legacy Converter"
+	, "Back"
+#endif
 };
 
 #ifndef CPYMO_LANG

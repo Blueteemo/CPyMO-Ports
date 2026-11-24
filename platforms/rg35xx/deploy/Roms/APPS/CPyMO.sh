@@ -182,7 +182,7 @@ RUNTIME_DIR=''
 RA_PID=''
 cleanup_runtime() {
     [ -n "$RUNTIME_DIR" ] || return 0
-    rm -f "$RUNTIME_DIR/volume.input" "$RUNTIME_DIR/session.cfg"
+    rm -f "$RUNTIME_DIR/volume.input" "$RUNTIME_DIR/session.cfg" "$RUNTIME_DIR/vde-request" "$RUNTIME_DIR/native-video.shm"
     rmdir "$RUNTIME_DIR" 2>/dev/null || :
 }
 stop_retroarch() {
@@ -353,7 +353,7 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
 
 {
     echo '=== CPyMO RG35XX GarlicOS/uClibc launcher ==='
-    echo 'launcher_revision=1.0.0'
+    echo 'launcher_revision=1.1.0'
     echo "time=$(date 2>/dev/null)"
     echo "script=$0"
     echo "launcher=$SELF"
@@ -417,6 +417,12 @@ if [ "$LOADER" = "none" ]; then LOADER=''; fi
     append_list="$SESSION_CONFIG"
     [ ! -r "$APPEND_CONFIG" ] || append_list="$APPEND_CONFIG|$SESSION_CONFIG"
     set -- "$@" --appendconfig "$append_list"
+    unset CPYMO_VDE_REQUEST
+    unset CPYMO_NATIVE_VIDEO_SCRIPT CPYMO_NATIVE_RUNTIME
+    if [ -r "$APPHOME/native-vde/play.sh" ] && [ -r "$APPHOME/native-vde/native-video" ]; then
+        export CPYMO_NATIVE_VIDEO_SCRIPT="$APPHOME/native-vde/play.sh"
+        export CPYMO_NATIVE_RUNTIME="$RUNTIME_DIR"
+    fi
     "$RA_BIN" "$@" "$GAMEDIR" >/dev/null 2>&1 &
     RA_PID=$!
     wait "$RA_PID"

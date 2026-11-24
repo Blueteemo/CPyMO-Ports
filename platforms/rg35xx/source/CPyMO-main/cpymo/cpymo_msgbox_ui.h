@@ -12,4 +12,10 @@ error_t cpymo_msgbox_ui_enter(
 	error_t (*okcancel_callback)(struct cpymo_engine *e, void *data, bool ok),
 	void *okcancel_callback_data);
 
+#ifdef GARLIC_NO_FFMPEG
+error_t cpymo_msgbox_ui_enter_legacy(
+	struct cpymo_engine *,
+	error_t (*choose)(struct cpymo_engine *, void *, bool));
+#endif
+
 #endif
