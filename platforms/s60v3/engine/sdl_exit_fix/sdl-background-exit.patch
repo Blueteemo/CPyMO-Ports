@@ -1,6 +1,23 @@
 --- a/src/video/symbian/SDL_epocevents.cpp
 +++ b/src/video/symbian/SDL_epocevents.cpp
-@@ -1031,6 +1031,19 @@
+@@ -538,9 +538,16 @@
+ #if defined (S60) || defined(S60V3)
+ 
+ extern "C" void EPOC_CalcScaleFactors(_THIS);
++#ifdef S60V3
++extern TInt CPyMOLandscapeScreenMode(TInt aMode, const TSize& aPhysicalSize);
++#endif
+ void EPOC_SetS60Mode(_THIS,TInt aS60Mode)
+ {
++#ifdef S60V3
++	Private->iSX0Mode = CPyMOLandscapeScreenMode(aS60Mode, Private->EPOC_ScreenSize);
++#else
+ 	Private->iSX0Mode = aS60Mode;
++#endif
+ 	if(Private->iSX0Mode & ESX0Stretched)
+ 	{
+ 		Private->iPutOffset =TPoint(0,0);		
+@@ -1031,6 +1038,19 @@
  
  CWaitForActivate* gWaitForActive = NULL;
  
@@ -20,7 +37,7 @@
  CWaitForActivate::CWaitForActivate():CActive(EPriorityStandard)
  {
  	CActiveScheduler::Add(this);
-@@ -1048,9 +1061,9 @@
+@@ -1048,9 +1068,9 @@
  
  void CWaitForActivate::RunL()
  {
@@ -32,7 +49,7 @@
  		CActiveScheduler::Stop(); 
  		delete gWaitForActive;
  		gWaitForActive = NULL;
-@@ -1077,7 +1090,7 @@
+@@ -1077,7 +1097,7 @@
  #else
  	User::ResetInactivityTime();
  #endif

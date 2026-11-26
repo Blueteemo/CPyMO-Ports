@@ -2,12 +2,12 @@
   "upstream_url": "https://codeload.github.com/JigokuMaster/symbian-sdl-libs/tar.gz/ff5a4e52ad8762e46ba5c3e15142b879bca0f76f",
   "upstream_commit": "ff5a4e52ad8762e46ba5c3e15142b879bca0f76f",
   "upstream_archive_sha256": "e467ff5e0ef8290edac9180e283db4546c231e4aedf71ca62dc65469e3a0c00d",
-  "actual_linked_archive_sha256": "63ee058134006e86e62b9975fa1f76bd83071ebcb70e81ae7c990d1200234d51",
+  "actual_linked_archive_sha256": "6c9676eca118d0222eb77d3d232fad98fa3c7934e0283564d05b32535af62aee",
   "replay_checked_files": {
-    "SDL-1.2.14_ag/Symbian/EBasicApp.cpp": "011c4fbacf1d8aef7dd6c2e31bfa60c28f904cdadb9feb8267233c4d0c02f885",
+    "SDL-1.2.14_ag/Symbian/EBasicApp.cpp": "075c4e51b6e719341229d2231347a41615865c119b8333a1ade3ef2a523b0ddc",
     "SDL-1.2.14_ag/Symbian/SDLSXXView.cpp": "4f94fb504530f4cf868cb889ae7696aa7bc13c8af48596677c09419d3f54d1fd",
     "SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp": "2749ea3f2f5ef53dee3d0e0d4fb8e98da37689e9fe9497f1d0c7a81a680b8d39",
-    "SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp": "7e2ad513ff121e7016356788ea4ead50cea7761ea29461dd99da9a003995b1ac",
+    "SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp": "07446431887f9140488d4b94b7885bd22e585abae3cca275285b10a808746265",
     "SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp": "2b6e6583b73ba8ffc8720c37657fd03eea0e52ee3b12fa1c824e3f9dd0c6e588",
     "SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl": "03f971a11a75d129cb7614d80f87114cf334f6fbc578d665aca92a2c047388c7"
   },
@@ -19,5 +19,5 @@
     "SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp",
     "SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl"
   ],
-  "source_tree_patch_sha256": "52ed75f9d3a6a6a23a0c5d18601ed0f863df4b188315934be202815c0cd091d8"
+  "source_tree_patch_sha256": "7f2670055d1181ad1127320b2e9d1ce972bd8959876bc7c7ed90819f25a1700a"
 }

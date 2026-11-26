@@ -25,7 +25,71 @@
  		SDL_Quit();
  		Exit();
  		// Exit here wont work since sdl is running at its own pace..
-@@ -1283,6 +1296,89 @@
+@@ -397,6 +410,23 @@
+ 	return EKeyWasNotConsumed;
+ }
+ 
++#ifdef S60V3
++// CPyMO's logical canvas is always landscape. ESX0Portrait is SDL's
++// unrotated/native mapping flag, so E63-like landscape screens NEED the bit,
++// while portrait-shaped physical screens must use the rotated mapping.
++// The saved ScreenMode must never choose the game's orientation.
++TInt CPyMOLandscapeScreenMode(TInt aMode, const TSize& aPhysicalSize)
++{
++	aMode &= ~ESX0Portrait;
++	if (aPhysicalSize.iWidth > aPhysicalSize.iHeight)
++		aMode |= ESX0Portrait;
++	// SDL also treats mode 0 as unrotated/native. Prevent that escape route.
++	if (aMode == 0)
++		aMode = ESX0Stretched | ESX0Flipped;
++	return aMode;
++}
++#endif
++
+ #if defined (S60) || defined (S60V3) || defined (UIQ3) // Special multitap handling for non touch devices
+ void CEBasicAppUi::HandleScreenDeviceChangedL()
+ {
+@@ -413,6 +443,10 @@
+ 
+ 	if(current_video != NULL)
+ 	{
++#ifdef S60V3
++		current_video->hidden->iSX0Mode = CPyMOLandscapeScreenMode(
++			current_video->hidden->iSX0Mode, iEikonEnv->ScreenDevice()->SizeInPixels());
++#endif
+ 		EPOC_ReconfigureVideo(current_video);
+ 		ESDL_PushResizeEvent(iEikonEnv->ScreenDevice()->SizeInPixels());
+ 
+@@ -514,6 +548,10 @@
+ 
+ void CEBasicAppUi::UpdateAndRedrawScreenL()
+ 	{
++#ifdef S60V3
++	current_video->hidden->iSX0Mode = CPyMOLandscapeScreenMode(
++		current_video->hidden->iSX0Mode, current_video->hidden->EPOC_ScreenSize);
++#endif
+ 	UpdateScaleFactors();		
+ 	iView->ClearScreen();
+ 	ClearBackBuffer(current_video);
+@@ -761,12 +799,17 @@
+ 		case 'p':
+ 		case EStdKeyNkp2:
+ 		case '2':
++#ifdef S60V3
++			// Never expose SDL's legacy portrait toggle in CPyMO.
++			break;
++#else
+ 			{
+ 			current_video->hidden->iSX0Mode=current_video->hidden->iSX0Mode^ESX0Portrait;						
+ 			UpdateAndRedrawScreenL();
+ 			//UpdateScreenOffset(KErrNotFound);
+ 			SetStatusCharAndTimer((current_video->hidden->iSX0Mode&ESX0Portrait)?_L("POR"):_L("LND"));
+ 			}break;	
++#endif
+ 		case 'F':
+ 		case 'f':
+ 		case EStdKeyNkp3:
+@@ -1283,6 +1326,89 @@
  void CEBasicAppUi::HandleWsEventL(const TWsEvent& aEvent, CCoeControl* aDestination)
  {
  	TInt type= aEvent.Type();
@@ -115,7 +179,7 @@
  #ifdef UIQ3
  	CQikAppUi::HandleWsEventL(aEvent,aDestination);
  #else
-@@ -1342,6 +1438,10 @@
+@@ -1342,6 +1468,10 @@
  #if defined (UIQ) || defined (S80) || defined (S90) || defined (S60)
  	iEikonEnv->FsSession().Share(RSessionBase::EExplicitAttach);
  #endif
@@ -126,7 +190,7 @@
  	SDL_Quit();
  #ifndef OPENC
  	CloseSTDLIB();
-@@ -1492,6 +1592,15 @@
+@@ -1492,6 +1622,15 @@
  void CEBasicAppUi::HandleForegroundEventL(TBool aForeground)
  {
  	iView->iForeground=aForeground;
@@ -142,3 +206,87 @@
  #if defined (S60) || defined (S60V3)
  	CAknAppUi::HandleForegroundEventL(aForeground);
  	
+@@ -1532,8 +1671,39 @@
+ 	}
+ 	else
+ 	{
++#ifdef S60V3
++		// A camera, phone call or native media player can change the physical
++		// screen while CPyMO is backgrounded. Do not trust a stale SDL mode.
++		const bool videoReady = current_video && current_video->hidden && current_video->screen;
++		bool displayChanged = false;
++		if (videoReady)
++		{
++			SDL_PrivateVideoData* priv = current_video->hidden;
++			const TSize physical = iEikonEnv->ScreenDevice()->SizeInPixels();
++			const bool geometryChanged = (priv->EPOC_ScreenSize != physical);
++			const TInt mode = CPyMOLandscapeScreenMode(priv->iSX0Mode, physical);
++			displayChanged = geometryChanged || mode != priv->iSX0Mode;
++			priv->iSX0Mode = mode;
++			if (geometryChanged)
++			{
++				iView->SetRect(TRect(TPoint(0,0), physical));
++				EPOC_ReconfigureVideo(current_video);
++			}
++		}
++#endif
+ 		iView->Restart(RDirectScreenAccess::ETerminateCancel);
+ 		gViewVisible=true;
++#ifdef S60V3
++		if (videoReady)
++		{
++			// Restart does not restore the clipping region by itself.
++			if (displayChanged)
++				UpdateAndRedrawScreenL();
++			else
++				iView->UpdateClipRect();
++			current_video->hidden->iNeedFullRedraw = ETrue;
++		}
++#endif
+ 	}
+ #endif
+ 
+@@ -1557,6 +1727,9 @@
+ void CEBasicAppUi::SetConfig()
+ {
+ 	SDL_PrivateVideoData* priv = current_video->hidden;
++#ifdef S60V3
++	priv->iSX0Mode = CPyMOLandscapeScreenMode(priv->iSX0Mode, priv->EPOC_ScreenSize);
++#endif
+ 	iConfig->WriteInt("Video","InputMode",priv->iInputMode);
+ 	iConfig->WriteInt("Video","LeftButtonCode1",priv->iLeftButtonCode1);
+ 	iConfig->WriteInt("Video","LeftButtonCode2",priv->iLeftButtonCode2);
+@@ -1574,7 +1747,11 @@
+ void CEBasicAppUi::GetConfig(SDL_VideoDevice* aDevice)
+ {
+ 	SDL_PrivateVideoData* priv = aDevice->hidden;
++#ifdef S60V3
++	iConfig->ReadFromFile();
++#else
+ 	TBool fileExist = iConfig->ReadFromFile();
++#endif
+ 	priv->iInputMode =(TInputModes) iConfig->ReadInt("Video", "InputMode", ECursorKeys);
+ 	priv->iLeftButtonCode1 =(TInputModes) iConfig->ReadInt("Video", "LeftButtonCode1", KDefaultLeftButtonCode1);
+ 	priv->iLeftButtonCode2 =(TInputModes) iConfig->ReadInt("Video", "LeftButtonCode2", KDefaultLeftButtonCode2);
+@@ -1584,6 +1761,13 @@
+ #elif defined (S80) || defined(S90)|| defined (UIQ)
+ 	priv->iSX0Mode = iConfig->ReadInt("Video","ScreenMode",0);
+ #else // (S60) (S60V3)
++#ifdef S60V3
++	// Keep the non-direction flags, but derive orientation from the screen on
++	// EVERY launch, including when a v1.1.0 sdl.ini already contains bad data.
++	priv->iSX0Mode = CPyMOLandscapeScreenMode(
++		iConfig->ReadInt("Video","ScreenMode", ESX0Stretched|ESX0Flipped),
++		iEikonEnv->ScreenDevice()->SizeInPixels());
++#else
+ 	if(fileExist)
+ 		{
+ 		priv->iSX0Mode = iConfig->ReadInt("Video","ScreenMode", ESX0Stretched|ESX0Flipped);
+@@ -1592,6 +1776,7 @@
+ 		{
+ 		priv->iSX0Mode = priv->EPOC_ScreenSize.iWidth > priv->EPOC_ScreenSize.iHeight?ESX0Stretched|ESX0Flipped|ESX0Portrait:ESX0Stretched|ESX0Flipped;
+ 		}
++#endif
+ 	
+ 	priv->iPutOffset.iX = iConfig->ReadInt("Video","OffsetX",0);
+ 	priv->iPutOffset.iY = iConfig->ReadInt("Video","OffsetY",0);

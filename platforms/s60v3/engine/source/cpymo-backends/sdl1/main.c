@@ -735,14 +735,18 @@ int main(int argc, char **argv)
             case SDL_VIDEOEXPOSE: redraw_system = true; break;
             case SDL_VIDEORESIZE:
 #ifdef S60V3
+                // SDL has reconfigured the physical display. Its width/height
+                // are not the dimensions of CPyMO's landscape logical canvas.
+                // Keep the existing framebuffer (including in-game geometry).
                 release_restore_scene();
-#endif
+#else
                 err = set_video_mode(event.resize.w, event.resize.h, current_full_screen);
                 if (err != CPYMO_ERR_SUCC) {
                     printf("[Error] SDL_SetVideoMode: %s\n", SDL_GetError());
                     ret = -1;
                     goto EXIT;
                 }
+#endif
                 redraw_system = true;
                 break;
             case SDL_MOUSEBUTTONDOWN:

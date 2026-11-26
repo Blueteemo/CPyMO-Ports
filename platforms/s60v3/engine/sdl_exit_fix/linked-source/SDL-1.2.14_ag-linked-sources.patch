@@ -1,7 +1,7 @@
-diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/Symbian/EBasicApp.cpp
---- pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp	2026-10-17 07:42:23.000000000 -0700
-+++ sdl-final/SDL-1.2.14_ag/Symbian/EBasicApp.cpp	2026-11-24 10:15:45.760059142 -0800
-@@ -1,2111 +1,2224 @@
+diff -ruN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp final/SDL-1.2.14_ag/Symbian/EBasicApp.cpp
+--- pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp	2026-10-17 22:42:23.000000000 +0800
++++ final/SDL-1.2.14_ag/Symbian/EBasicApp.cpp	2026-11-27 00:57:49.271670211 +0800
+@@ -1,2111 +1,2300 @@
 -#include "EBasicApp.h"
 -#ifdef UIQ
 -#include <quartzkeys.h>
@@ -2525,6 +2525,23 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +	return EKeyWasNotConsumed;
 +}
 +
++#ifdef S60V3
++// CPyMO's logical canvas is always landscape. ESX0Portrait is SDL's
++// unrotated/native mapping flag, so E63-like landscape screens NEED the bit,
++// while portrait-shaped physical screens must use the rotated mapping.
++// The saved ScreenMode must never choose the game's orientation.
++TInt CPyMOLandscapeScreenMode(TInt aMode, const TSize& aPhysicalSize)
++{
++	aMode &= ~ESX0Portrait;
++	if (aPhysicalSize.iWidth > aPhysicalSize.iHeight)
++		aMode |= ESX0Portrait;
++	// SDL also treats mode 0 as unrotated/native. Prevent that escape route.
++	if (aMode == 0)
++		aMode = ESX0Stretched | ESX0Flipped;
++	return aMode;
++}
++#endif
++
 +#if defined (S60) || defined (S60V3) || defined (UIQ3) // Special multitap handling for non touch devices
 +void CEBasicAppUi::HandleScreenDeviceChangedL()
 +{
@@ -2541,6 +2558,10 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +
 +	if(current_video != NULL)
 +	{
++#ifdef S60V3
++		current_video->hidden->iSX0Mode = CPyMOLandscapeScreenMode(
++			current_video->hidden->iSX0Mode, iEikonEnv->ScreenDevice()->SizeInPixels());
++#endif
 +		EPOC_ReconfigureVideo(current_video);
 +		ESDL_PushResizeEvent(iEikonEnv->ScreenDevice()->SizeInPixels());
 +
@@ -2642,6 +2663,10 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +
 +void CEBasicAppUi::UpdateAndRedrawScreenL()
 +	{
++#ifdef S60V3
++	current_video->hidden->iSX0Mode = CPyMOLandscapeScreenMode(
++		current_video->hidden->iSX0Mode, current_video->hidden->EPOC_ScreenSize);
++#endif
 +	UpdateScaleFactors();		
 +	iView->ClearScreen();
 +	ClearBackBuffer(current_video);
@@ -2889,12 +2914,17 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +		case 'p':
 +		case EStdKeyNkp2:
 +		case '2':
++#ifdef S60V3
++			// Never expose SDL's legacy portrait toggle in CPyMO.
++			break;
++#else
 +			{
 +			current_video->hidden->iSX0Mode=current_video->hidden->iSX0Mode^ESX0Portrait;						
 +			UpdateAndRedrawScreenL();
 +			//UpdateScreenOffset(KErrNotFound);
 +			SetStatusCharAndTimer((current_video->hidden->iSX0Mode&ESX0Portrait)?_L("POR"):_L("LND"));
 +			}break;	
++#endif
 +		case 'F':
 +		case 'f':
 +		case EStdKeyNkp3:
@@ -3756,8 +3786,39 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +	}
 +	else
 +	{
++#ifdef S60V3
++		// A camera, phone call or native media player can change the physical
++		// screen while CPyMO is backgrounded. Do not trust a stale SDL mode.
++		const bool videoReady = current_video && current_video->hidden && current_video->screen;
++		bool displayChanged = false;
++		if (videoReady)
++		{
++			SDL_PrivateVideoData* priv = current_video->hidden;
++			const TSize physical = iEikonEnv->ScreenDevice()->SizeInPixels();
++			const bool geometryChanged = (priv->EPOC_ScreenSize != physical);
++			const TInt mode = CPyMOLandscapeScreenMode(priv->iSX0Mode, physical);
++			displayChanged = geometryChanged || mode != priv->iSX0Mode;
++			priv->iSX0Mode = mode;
++			if (geometryChanged)
++			{
++				iView->SetRect(TRect(TPoint(0,0), physical));
++				EPOC_ReconfigureVideo(current_video);
++			}
++		}
++#endif
 +		iView->Restart(RDirectScreenAccess::ETerminateCancel);
 +		gViewVisible=true;
++#ifdef S60V3
++		if (videoReady)
++		{
++			// Restart does not restore the clipping region by itself.
++			if (displayChanged)
++				UpdateAndRedrawScreenL();
++			else
++				iView->UpdateClipRect();
++			current_video->hidden->iNeedFullRedraw = ETrue;
++		}
++#endif
 +	}
 +#endif
 +
@@ -3781,6 +3842,9 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +void CEBasicAppUi::SetConfig()
 +{
 +	SDL_PrivateVideoData* priv = current_video->hidden;
++#ifdef S60V3
++	priv->iSX0Mode = CPyMOLandscapeScreenMode(priv->iSX0Mode, priv->EPOC_ScreenSize);
++#endif
 +	iConfig->WriteInt("Video","InputMode",priv->iInputMode);
 +	iConfig->WriteInt("Video","LeftButtonCode1",priv->iLeftButtonCode1);
 +	iConfig->WriteInt("Video","LeftButtonCode2",priv->iLeftButtonCode2);
@@ -3798,7 +3862,11 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +void CEBasicAppUi::GetConfig(SDL_VideoDevice* aDevice)
 +{
 +	SDL_PrivateVideoData* priv = aDevice->hidden;
++#ifdef S60V3
++	iConfig->ReadFromFile();
++#else
 +	TBool fileExist = iConfig->ReadFromFile();
++#endif
 +	priv->iInputMode =(TInputModes) iConfig->ReadInt("Video", "InputMode", ECursorKeys);
 +	priv->iLeftButtonCode1 =(TInputModes) iConfig->ReadInt("Video", "LeftButtonCode1", KDefaultLeftButtonCode1);
 +	priv->iLeftButtonCode2 =(TInputModes) iConfig->ReadInt("Video", "LeftButtonCode2", KDefaultLeftButtonCode2);
@@ -3808,6 +3876,13 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +#elif defined (S80) || defined(S90)|| defined (UIQ)
 +	priv->iSX0Mode = iConfig->ReadInt("Video","ScreenMode",0);
 +#else // (S60) (S60V3)
++#ifdef S60V3
++	// Keep the non-direction flags, but derive orientation from the screen on
++	// EVERY launch, including when a v1.1.0 sdl.ini already contains bad data.
++	priv->iSX0Mode = CPyMOLandscapeScreenMode(
++		iConfig->ReadInt("Video","ScreenMode", ESX0Stretched|ESX0Flipped),
++		iEikonEnv->ScreenDevice()->SizeInPixels());
++#else
 +	if(fileExist)
 +		{
 +		priv->iSX0Mode = iConfig->ReadInt("Video","ScreenMode", ESX0Stretched|ESX0Flipped);
@@ -3816,6 +3891,7 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +		{
 +		priv->iSX0Mode = priv->EPOC_ScreenSize.iWidth > priv->EPOC_ScreenSize.iHeight?ESX0Stretched|ESX0Flipped|ESX0Portrait:ESX0Stretched|ESX0Flipped;
 +		}
++#endif
 +	
 +	priv->iPutOffset.iX = iConfig->ReadInt("Video","OffsetX",0);
 +	priv->iPutOffset.iY = iConfig->ReadInt("Video","OffsetY",0);
@@ -4337,9 +4413,9 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/EBasicApp.cpp sdl-final/SDL-1.2.14_ag/S
 +#endif // UIQ3 || UIQ
 +
 +
-diff -urN pristine/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp sdl-final/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp
---- pristine/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp	2026-10-17 07:42:23.000000000 -0700
-+++ sdl-final/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp	2026-11-24 10:15:45.760109756 -0800
+diff -ruN pristine/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp final/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp
+--- pristine/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp	2026-10-17 22:42:23.000000000 +0800
++++ final/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp	2026-11-27 00:57:49.271868130 +0800
 @@ -1,922 +1,940 @@
 -#include <stdlib.h>
 -#include <stdio.h>
@@ -6203,9 +6279,9 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/SDLSXXView.cpp sdl-final/SDL-1.2.14_ag/
 +#endif
 +#endif
 +
-diff -urN pristine/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp sdl-final/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp
---- pristine/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp	2026-10-17 07:42:23.000000000 -0700
-+++ sdl-final/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp	2026-11-24 10:15:45.757083353 -0800
+diff -ruN pristine/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp final/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp
+--- pristine/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp	2026-10-17 22:42:23.000000000 +0800
++++ final/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp	2026-11-27 00:57:49.272114943 +0800
 @@ -6,6 +6,7 @@
  TARGETTYPE      lib
  
@@ -6223,10 +6299,10 @@ diff -urN pristine/SDL-1.2.14_ag/Symbian/s60v3/ESDL_S60V3.mmp sdl-final/SDL-1.2.
  SYSTEMINCLUDE   \epoc32\include\mw
  SYSTEMINCLUDE   \epoc32\include\platform
  SYSTEMINCLUDE   \epoc32\include\platform\mw
-diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp sdl-final/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp
---- pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp	2026-10-17 07:42:23.000000000 -0700
-+++ sdl-final/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp	2026-11-24 10:15:45.762765320 -0800
-@@ -1,2189 +1,2202 @@
+diff -ruN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp final/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp
+--- pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp	2026-10-17 22:42:23.000000000 +0800
++++ final/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp	2026-11-27 00:57:49.272254493 +0800
+@@ -1,2189 +1,2209 @@
 -/*
 -    SDL - Simple DirectMedia Layer
 -    Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002  Sam Lantinga
@@ -8956,9 +9032,16 @@ diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp sdl-final/
 +#if defined (S60) || defined(S60V3)
 +
 +extern "C" void EPOC_CalcScaleFactors(_THIS);
++#ifdef S60V3
++extern TInt CPyMOLandscapeScreenMode(TInt aMode, const TSize& aPhysicalSize);
++#endif
 +void EPOC_SetS60Mode(_THIS,TInt aS60Mode)
 +{
++#ifdef S60V3
++	Private->iSX0Mode = CPyMOLandscapeScreenMode(aS60Mode, Private->EPOC_ScreenSize);
++#else
 +	Private->iSX0Mode = aS60Mode;
++#endif
 +	if(Private->iSX0Mode & ESX0Stretched)
 +	{
 +		Private->iPutOffset =TPoint(0,0);		
@@ -10618,9 +10701,9 @@ diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocevents.cpp sdl-final/
 +
 +#endif
 +
-diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp sdl-final/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp
---- pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp	2026-10-17 07:42:23.000000000 -0700
-+++ sdl-final/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp	2026-11-24 10:15:45.762738492 -0800
+diff -ruN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp final/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp
+--- pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp	2026-10-17 22:42:23.000000000 +0800
++++ final/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp	2026-11-27 00:57:49.272506233 +0800
 @@ -32,7 +32,7 @@
  #include <stdlib.h>
  #include <stdio.h>
@@ -11054,9 +11137,9 @@ diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/SDL_epocvideo.cpp sdl-final/S
  	}
  
  /* Note:  If we are terminated, this could be called in the middle of
-diff -urN pristine/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl sdl-final/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl
---- pristine/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl	2026-10-17 07:42:23.000000000 -0700
-+++ sdl-final/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl	2026-11-24 10:15:45.762796907 -0800
+diff -ruN pristine/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl final/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl
+--- pristine/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl	2026-10-17 22:42:23.000000000 +0800
++++ final/SDL-1.2.14_ag/src/video/symbian/sdl_epocvideo_s60v3.inl	2026-11-27 00:57:49.272603661 +0800
 @@ -1,1257 +1,1258 @@
 -TInt i240StartPosition[240];
 -#define KVirtualKeyboardSpace 240

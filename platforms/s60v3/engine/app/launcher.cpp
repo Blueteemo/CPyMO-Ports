@@ -175,7 +175,7 @@ public:
             else
                 setvbuf(stdout, log_buffer, _IOFBF, sizeof(log_buffer));
         }
-        printf("[App] CPyMO S60v3 1.1.0 startup.\n");
+        printf("[App] CPyMO S60v3 1.1.1 startup.\n");
         char program[]="cpymo";char *args[]={program,0};
         int result=SDL_main(1,args);
         cpymo_s60_exit_stage(3);

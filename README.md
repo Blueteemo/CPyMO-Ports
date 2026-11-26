@@ -10,7 +10,12 @@
 
 ## 下载
 
-请从 [GitHub Releases](https://github.com/Blueteemo/CPyMO-Ports/releases) 按平台下载安装包。发行页同时提供更新说明、校验值和对应源码附件。
+各平台独立维护版本，按所用设备下载安装包。发行页同时提供更新说明、校验值和对应源码附件。
+
+| 平台 | 当前版本 | 下载 |
+| --- | --- | --- |
+| **Symbian S60v3** | 1.1.1 | [发行页](https://github.com/Blueteemo/CPyMO-Ports/releases/tag/s60v3-v1.1.1) |
+| **初代 RG35XX（GarlicOS）** | 1.1.0 | [发行页](https://github.com/Blueteemo/CPyMO-Ports/releases/tag/v1.1.0) |
 
 ## 安装与开始使用
 
@@ -18,13 +23,13 @@
 
 1. **先装 P.I.P.S.** 在手机上打开下载的 `.sis` 并安装。已装 1.7.0 或更新版本可跳过。[下载 P.I.P.S.（第三方镜像）](https://files.3zet.net/Operation%20Symbian/Libs%20and%20Tools/pips_s60_1_7_SS.sis)
    - 如果安装 P.I.P.S. 时提示证书尚未生效或已过期，请将手机日期临时调到 2015 年，装完后再改回当前日期。
-2. **再装 CPyMO。** 解压 CPyMO 安装包，在手机上打开其中的 `.sisx` 并安装。[前往发行页](https://github.com/Blueteemo/CPyMO-Ports/releases)
+2. **再装 CPyMO。** 解压 CPyMO 安装包，在手机上打开其中的 `.sisx` 并安装。[前往 S60v3 发行页](https://github.com/Blueteemo/CPyMO-Ports/releases/tag/s60v3-v1.1.1)
 
 把游戏文件夹放进 `E:\Python\` 或 `C:\Data\Python\`，从手机菜单打开 CPyMO，选中游戏后按左软键进入。
 
 签名安装选项见包内说明。[P.I.P.S. 来源与 SHA-256](platforms/s60v3/engine/Dependencies/PIPS_1.7.0.txt)
 
-安装包使用 `CPyMO S60v3` 自签名证书。如果手机拒绝覆盖安装，先备份游戏目录内的 `save` 文件夹，再通过程序管理卸载 CPyMO 后重新安装。1.1.0 已在 Nokia E63 上验证。
+从 1.1.0 升级可直接覆盖安装，请保留原有游戏目录和存档。1.1.0 已在 Nokia E63 上验证。
 
 游戏视频由系统播放器打开；播放完从播放器按返回键继续游戏。
 

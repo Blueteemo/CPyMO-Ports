@@ -145,6 +145,9 @@ def main():
 	}
 #endif''')
  (D/'EBasicApp.cpp').write_text(new)
+ run('patch-landscape-only-app',['patch','--batch','--forward','--fuzz=0',
+     D/'EBasicApp.cpp',D/'sdl-landscape-only-app.patch'])
+ new=(D/'EBasicApp.cpp').read_text()
  (D/'sdl-propagate-normal-exit-leave.patch').write_text(''.join(difflib.unified_diff(old.splitlines(True),new.splitlines(True),fromfile='a/Symbian/EBasicApp.cpp',tofile='b/Symbian/EBasicApp.cpp')))
  (D/'SDLSXXView.cpp').write_text(view.read_text())
  run('patch-startup-view',['patch','--batch',D/'SDLSXXView.cpp',D/'sdl-startup-full-window.patch'])
@@ -181,6 +184,9 @@ static bool KeepWaitingForForeground()
  new_events=new_events.replace(idle_body,
      '\tif(KeepWaitingForForeground())\n\t{\n\t\tdelete gWaitForActive;')
  (D/events.name).write_text(new_events,encoding='latin-1')
+ run('patch-landscape-only-events',['patch','--batch','--forward','--fuzz=0',
+     D/events.name,D/'sdl-landscape-only-events.patch'])
+ new_events=(D/events.name).read_text(encoding='latin-1')
  (D/'sdl-background-exit.patch').write_text(''.join(difflib.unified_diff(
      old_events.splitlines(True),new_events.splitlines(True),
      fromfile='a/src/video/symbian/'+events.name,tofile='b/src/video/symbian/'+events.name)))
