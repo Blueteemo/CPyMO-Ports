@@ -69,7 +69,7 @@ extension Notification.Name {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center; paragraph.lineSpacing = 5
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "CPyMO", .applicationVersion: "0.3.6",
+            .applicationName: "CPyMO", .applicationVersion: "0.3.7",
             .version: "CPyMO Aria 1.1.9", .applicationIcon: (icon ?? NSApp.applicationIconImage ?? NSImage()) as Any,
             .credits: NSAttributedString(string: words.trimmingCharacters(in: .whitespacesAndNewlines),
                 attributes: [.font: NSFont.systemFont(ofSize: 12), .paragraphStyle: paragraph])
@@ -138,8 +138,42 @@ private struct OriginalPreview: View {
     @ObservedObject var state: PreviewState
     let delegate: MenuDelegate
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var selectionSlide: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.17) }
     @FocusState private var searchFocused: Bool
     @FocusState private var gamesFocused: Bool
+    @StateObject private var sidebarGrid = SidebarGridMotion()
+
+    @MainActor private final class SidebarGridMotion: ObservableObject {
+        var viewportWidth: CGFloat?
+        @Published var transition: SidebarGridTransition?
+    }
+
+    private struct SidebarGridTransition: Hashable {
+        let columns: Int
+        let gap: CGFloat
+        let began: ContinuousClock.Instant = .now
+    }
+
+    private struct SidebarGridSample: Hashable {
+        let transition: SidebarGridTransition
+        let width: Int
+    }
+
+    private func setDetailsVisible(_ visible: Bool) {
+        guard visible != state.showDetails else { return }
+        if state.libraryMode == .icons, let width = sidebarGrid.viewportWidth {
+            let previous = sidebarGrid.transition
+            let columns = previous?.columns ?? TileLayout.columns(for: width)
+            let gap = previous?.gap ?? TileLayout.fittedGap(for: width, columns: columns)
+            sidebarGrid.transition = SidebarGridTransition(columns: columns, gap: gap)
+        }
+        state.showDetails = visible
+    }
+
+    private var detailsVisibility: Binding<Bool> {
+        Binding(get: { state.showDetails }, set: setDetailsVisible)
+    }
     private var dark: Bool { state.effectiveScheme == .dark }
     private var paper: Color {
         dark ? Color(red: 0.136, green: 0.145, blue: 0.160) : Color(red: 0.962, green: 0.966, blue: 0.973)
@@ -185,7 +219,7 @@ private struct OriginalPreview: View {
                     Button { state.choose(.game) } label: { Label("添加游戏", systemImage: "plus") }
                         .help("添加游戏")
                     appearanceMenu
-                    Button { state.showDetails.toggle() } label: { Label("游戏详情", systemImage: "sidebar.right") }
+                    Button { setDetailsVisible(!state.showDetails) } label: { Label("游戏详情", systemImage: "sidebar.right") }
                         .help("显示或隐藏游戏详情")
                 }
             }
@@ -194,7 +228,7 @@ private struct OriginalPreview: View {
                     .opacity(0).accessibilityHidden(true).allowsHitTesting(false)
             }
         }
-        .inspector(isPresented: $state.showDetails) {
+        .inspector(isPresented: detailsVisibility) {
             inspector.inspectorColumnWidth(min: 228, ideal: 268, max: 345)
         }
         .foregroundStyle(ink)
@@ -216,7 +250,7 @@ private struct OriginalPreview: View {
         .onReceive(NotificationCenter.default.publisher(for: .openGames)) { _ in state.choose(.game) }
         .onReceive(NotificationCenter.default.publisher(for: .openLocation)) { _ in state.choose(.location) }
         .onReceive(NotificationCenter.default.publisher(for: .searchGames)) { _ in searchFocused = true }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleDetails)) { _ in state.showDetails.toggle() }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleDetails)) { _ in setDetailsVisible(!state.showDetails) }
         .onReceive(NotificationCenter.default.publisher(for: .startGame)) { _ in
             if let game, !searchFocused { state.play(game) }
         }
@@ -259,6 +293,9 @@ private struct OriginalPreview: View {
             }
             Spacer()
         }
+        .backgroundPreferenceValue(SelectionFrames.self) {
+            selectionTrack($0, selected: state.tab, radius: 10, fill: 0.115, tint: 0.17)
+        }
         .padding(.horizontal, 15)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -277,14 +314,26 @@ private struct OriginalPreview: View {
             }.font(.system(size: 14)).padding(.horizontal, 10).frame(height: 37)
                 .contentShape(Rectangle())
         }.buttonStyle(.plain)
-         .background {
-             if active {
-                 RoundedRectangle(cornerRadius: 10).fill(blue.opacity(0.115))
-             }
-         }
-         .glassEffect(active && state.glass ? .regular.tint(blue.opacity(0.17)) : .identity, in: .rect(cornerRadius: 10))
+         .anchorPreference(key: SelectionFrames.self, value: .bounds) { [id: $0] }
          .accessibilityAddTraits(active ? .isSelected : [])
     }
+    private func selectionTrack(_ anchors: [Int: Anchor<CGRect>], selected: Int,
+                                radius: CGFloat, fill: Double, tint: Double) -> some View {
+        GeometryReader { geo in
+            if let anchor = anchors[selected] {
+                let target = geo[anchor]
+                RoundedRectangle(cornerRadius: radius).fill(blue.opacity(fill))
+                    .glassEffect(state.glass ? .regular.tint(blue.opacity(tint)) : .identity,
+                                 in: .rect(cornerRadius: radius))
+                    .frame(width: target.width, height: target.height)
+                    .modifier(HighlightTravel(x: target.midX, y: target.midY))
+                    .animation(selectionSlide, value: selected)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     private var libraryHeading: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(heading).font(.system(size: 25, weight: .semibold)).lineLimit(1)
@@ -362,19 +411,46 @@ private struct OriginalPreview: View {
     }
     private var gameViewport: some View {
         GeometryReader { geo in
-            let cols = TileLayout.columns(for: geo.size.width)
+            let naturalColumns = TileLayout.columns(for: geo.size.width)
+            let cols = sidebarGrid.transition?.columns ?? naturalColumns
+            let gap = sidebarGrid.transition?.gap ?? TileLayout.fittedGap(for: geo.size.width, columns: cols)
+            let sample = sidebarGrid.transition.map {
+                SidebarGridSample(transition: $0, width: Int(geo.size.width.rounded()))
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     if state.libraryMode == .list {
                         VStack(spacing: 5) {
                             ForEach(items) { row($0).id($0.id) }
-                        }.padding(.vertical, 2)
+                        }
+                        .backgroundPreferenceValue(SelectionFrames.self) {
+                            selectionTrack($0, selected: state.selected, radius: 11, fill: 0.10, tint: 0.15)
+                        }
+                        .padding(.vertical, 2)
                     } else {
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 56), spacing: 10), count: cols),
-                                  alignment: .leading, spacing: 10) {
+                        FittedIconGrid(columns: cols, gap: gap) {
                             ForEach(items) { tile($0).id($0.id) }
-                        }.padding(.horizontal, 14).padding(.vertical, 5)
+                        }
+                        .backgroundPreferenceValue(SelectionFrames.self) {
+                            selectionTrack($0, selected: state.selected, radius: 12, fill: 0.10, tint: 0.15)
+                        }
+                        .padding(.horizontal, TileLayout.horizontalInset).padding(.vertical, 5)
+                            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                     }
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+                    sidebarGrid.viewportWidth = $0
+                }
+                .task(id: sample) {
+                    guard let sample else { return }
+                    // The native inspector lays out several widths during its animation.
+                    // Wait for the width to settle before changing the number of columns.
+                    let minimum = sample.transition.began.advanced(by: .milliseconds(320))
+                    let quiet = ContinuousClock.now.advanced(by: .milliseconds(95))
+                    do { try await Task.sleep(until: max(minimum, quiet), clock: .continuous) }
+                    catch { return }
+                    guard !Task.isCancelled, sidebarGrid.transition == sample.transition else { return }
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { sidebarGrid.transition = nil }
                 }
                 .focusable().focusEffectDisabled()
                 .focused($gamesFocused)
@@ -386,7 +462,12 @@ private struct OriginalPreview: View {
                     state.selected = next
                     proxy.scrollTo(next)
                 }
-                .onChange(of: state.libraryMode) { _,_ in
+                .onDisappear {
+                    sidebarGrid.viewportWidth = nil
+                    sidebarGrid.transition = nil
+                }
+                .onChange(of: state.libraryMode) { _, mode in
+                    if mode == .list { sidebarGrid.transition = nil }
                     DispatchQueue.main.async { proxy.scrollTo(state.selected) }
                 }
             }
@@ -399,14 +480,11 @@ private struct OriginalPreview: View {
             artwork(item, size: 52)
             Text(item.title)
                 .font(.system(size: 12, weight: active ? .semibold : .regular))
-                .multilineTextAlignment(.center).lineLimit(2)
+                .lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity)
         }.padding(.horizontal, 7)
-            .frame(maxWidth: .infinity, minHeight: 104, maxHeight: 104, alignment: .center)
-            .background {
-                if active { RoundedRectangle(cornerRadius: 12).fill(blue.opacity(0.10)) }
-            }
-            .glassEffect(active && state.glass ? .regular.tint(blue.opacity(0.15)) : .identity, in: .rect(cornerRadius: 12))
+            .frame(width: TileLayout.cellWidth, height: 104)
+            .anchorPreference(key: SelectionFrames.self, value: .bounds) { [item.id: $0] }
             .contentShape(.rect(cornerRadius: 12))
             .onTapGesture(count: 2) { state.selected = item.id; state.play(item) }
             .onTapGesture { state.selected = item.id; gamesFocused = true }
@@ -441,10 +519,7 @@ private struct OriginalPreview: View {
             Text(state.lastPlayed(item)).font(.caption).foregroundStyle(muted)
         }
         .padding(.leading, 15).padding(.trailing, 19).frame(height: 55)
-        .background {
-            if active { RoundedRectangle(cornerRadius: 11).fill(blue.opacity(0.10)) }
-        }
-        .glassEffect(active && state.glass ? .regular.tint(blue.opacity(0.15)) : .identity, in: .rect(cornerRadius: 11))
+        .anchorPreference(key: SelectionFrames.self, value: .bounds) { [item.id: $0] }
         .overlay(alignment: .leading) {
             if active { Capsule().fill(blue.opacity(0.76)).frame(width: 3, height: 21).padding(.leading, 5) }
         }
@@ -479,7 +554,9 @@ private struct OriginalPreview: View {
             if let game {
                 HStack(spacing: 11) {
                     artwork(game, size: 48)
-                    Text(game.title).font(.system(size: 22, weight: .semibold)).lineLimit(2)
+                    Text(game.title).font(.system(size: 22, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(game.title)
                 }.padding(.bottom, 20)
                 rule.frame(height: 1).modifier(InspectorEdgeAlignment()).padding(.bottom, 17)
                 metadata("文件夹", game.url.lastPathComponent).help(game.url.path)
@@ -666,10 +743,35 @@ private struct LibraryDisplaySwitch: View {
     @Published var position: CGFloat?
     var wasDragged = false
 }
-private enum TileLayout {
-    static func columns(for width: CGFloat) -> Int {
-        max(1, Int((max(0, width - 28) + 10) / (106 + 10)))
+private struct FittedIconGrid<Content: View>: View, Animatable {
+    let columns: Int
+    var gap: CGFloat
+    @ViewBuilder let content: Content
+
+    var animatableData: CGFloat {
+        get { gap }
+        set { gap = newValue }
     }
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(TileLayout.cellWidth), spacing: gap), count: columns),
+                  alignment: .leading, spacing: 10) { content }
+    }
+}
+
+private enum TileLayout {
+    static let cellWidth: CGFloat = 106
+    static let gap: CGFloat = 10
+    static let horizontalInset: CGFloat = 14
+
+    static func columns(for width: CGFloat) -> Int {
+        max(1, Int((max(0, width - 2 * horizontalInset) + gap) / (cellWidth + gap)))
+    }
+    static func fittedGap(for width: CGFloat, columns: Int) -> CGFloat {
+        guard columns > 1 else { return gap }
+        return max(gap, (width - 2 * horizontalInset - CGFloat(columns) * cellWidth) / CGFloat(columns - 1))
+    }
+
     static func move(_ ids: [Int], from selected: Int, direction: MoveCommandDirection,
                      columns: Int, mode: LibraryMode) -> Int? {
         if mode == .list {
@@ -1159,6 +1261,9 @@ private struct WindowAppearanceLink: NSViewRepresentable {
             precondition(LibraryDisplaySwitch.destination(at: 51) == .icons)
             precondition(TileLayout.columns(for: 560) == 4)
             precondition(TileLayout.columns(for: 400) == 3)
+            precondition(TileLayout.columns(for: 653) == 5)
+            precondition(TileLayout.fittedGap(for: 653, columns: 5) == 23.75)
+            precondition(TileLayout.fittedGap(for: 140, columns: 1) == TileLayout.gap)
             precondition(TileLayout.move(ids, from: 1, direction: .down, columns: 4, mode: .icons) == 5)
             precondition(TileLayout.move(ids, from: 5, direction: .up, columns: 4, mode: .icons) == 1)
             precondition(TileLayout.move(ids, from: 5, direction: .left, columns: 4, mode: .icons) == 4)
@@ -1242,7 +1347,7 @@ private struct WindowAppearanceLink: NSViewRepresentable {
                 "CFBundleDevelopmentRegion": "zh_CN", "CFBundleLocalizations": ["zh-Hans"],
                 "CFBundleExecutable": "CPyMO", "CFBundlePackageType": "APPL",
                 "CFBundleIconFile": iconName, "LSMinimumSystemVersion": "27.2", "NSHighResolutionCapable": true,
-                "CFBundleShortVersionString": "0.3.6", "CFBundleVersion": "10"
+                "CFBundleShortVersionString": "0.3.7", "CFBundleVersion": "11"
             ]
             let data = try PropertyListSerialization.data(fromPropertyList: props, format: .xml, options: 0)
             try data.write(to: contents.appendingPathComponent("Info.plist"), options: .atomic)
@@ -1282,4 +1387,21 @@ private struct WindowAppearanceLink: NSViewRepresentable {
         }
         return Data("icns".utf8) + size(16 + png.count) + Data("ic08".utf8) + size(8 + png.count) + png
     }
+}
+
+private enum SelectionFrames: PreferenceKey {
+    static var defaultValue: [Int: Anchor<CGRect>] { [:] }
+    static func reduce(value: inout [Int: Anchor<CGRect>], nextValue: () -> [Int: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct HighlightTravel: ViewModifier, Animatable {
+    var x: CGFloat
+    var y: CGFloat
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(x, y) }
+        set { x = newValue.first; y = newValue.second }
+    }
+    func body(content: Content) -> some View { content.position(x: x, y: y) }
 }
